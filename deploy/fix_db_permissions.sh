@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# 修复 supplycore 库权限：表由 postgres 超级用户创建时，应用用户无法 AutoMigrate / 建索引。
-# 用法（需能连 postgres 超级用户）:
-#   ./deploy/fix_db_permissions.sh
-#   PGHOST=127.0.0.1 ./deploy/fix_db_permissions.sh
-
+# 修复应用用户在 public schema 上的权限（PostgreSQL 15+）
 set -euo pipefail
 
 DB_NAME="${DB_NAME:-supplycore}"
@@ -11,7 +7,10 @@ DB_USER="${DB_USER:-supplycore}"
 PGHOST="${PGHOST:-127.0.0.1}"
 
 psql -h "$PGHOST" -U postgres -d "$DB_NAME" -v ON_ERROR_STOP=1 <<SQL
-GRANT USAGE ON SCHEMA public TO ${DB_USER};
+GRANT CONNECT ON DATABASE ${DB_NAME} TO ${DB_USER};
+GRANT USAGE, CREATE ON SCHEMA public TO ${DB_USER};
+GRANT ALL ON SCHEMA public TO ${DB_USER};
+ALTER SCHEMA public OWNER TO ${DB_USER};
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};
