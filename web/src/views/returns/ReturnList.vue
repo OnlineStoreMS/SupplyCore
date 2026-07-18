@@ -7,6 +7,7 @@ import {
   fetchPurchaseReturns, voidReturn, RETURN_STATUS_MAP,
   fetchPurchaseInbound, type PurchaseReturnListItem,
 } from '../../api/purchaseExt'
+import { listWarehouses, type Warehouse } from '../../api/warehouse'
 
 const router = useRouter()
 const loading = ref(false)
@@ -18,10 +19,12 @@ const keyword = ref('')
 const dialogVisible = ref(false)
 const form = reactive({
   inboundId: undefined as number | undefined,
+  warehouseId: undefined as number | undefined,
   warehouseName: '',
   trackingNo: '',
   remark: '',
 })
+const warehouses = ref<Warehouse[]>([])
 const items = ref<{
   inboundItemId: number
   skuId: number
@@ -50,8 +53,23 @@ async function load() {
   }
 }
 
+async function loadWarehouses() {
+  try {
+    const data = await listWarehouses({ page: 1, pageSize: 200 })
+    warehouses.value = data.list.filter((w) => w.status === 1)
+  } catch {
+    warehouses.value = []
+  }
+}
+
+function onWarehouseChange(id: number) {
+  const wh = warehouses.value.find((w) => w.id === id)
+  form.warehouseName = wh?.name || ''
+}
+
 async function openCreate() {
   form.inboundId = undefined
+  form.warehouseId = undefined
   form.warehouseName = ''
   form.trackingNo = ''
   form.remark = ''
@@ -63,6 +81,7 @@ async function loadInboundItems() {
   if (!form.inboundId) return
   try {
     const detail = await fetchPurchaseInbound(form.inboundId)
+    form.warehouseId = detail.warehouseId || undefined
     form.warehouseName = detail.warehouseName
     items.value = detail.items.map((it) => ({
       inboundItemId: it.id,
@@ -86,6 +105,7 @@ async function submit() {
   try {
     const created = await createPurchaseReturn({
       inboundId: form.inboundId,
+      warehouseId: form.warehouseId,
       warehouseName: form.warehouseName,
       trackingNo: form.trackingNo,
       remark: form.remark,
@@ -132,7 +152,10 @@ async function onVoid(row: PurchaseReturnListItem) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  void loadWarehouses()
+  void load()
+})
 </script>
 
 <template>
@@ -208,7 +231,21 @@ onMounted(load)
           <el-button class="ml" @click="loadInboundItems">加载明细</el-button>
         </el-form-item>
         <el-form-item label="仓库">
-          <el-input v-model="form.warehouseName" />
+          <el-select
+            v-model="form.warehouseId"
+            filterable
+            clearable
+            placeholder="选择 WarehouseCore 仓库"
+            style="width: 100%"
+            @change="onWarehouseChange"
+          >
+            <el-option
+              v-for="w in warehouses"
+              :key="w.id"
+              :label="`${w.name} (${w.code})`"
+              :value="w.id"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="物流单号">
           <el-input v-model="form.trackingNo" />

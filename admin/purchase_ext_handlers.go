@@ -137,7 +137,7 @@ func (h *PurchaseExtHandler) ApproveInboundWH(c *gin.Context) {
 		response.Fail(c, http.StatusBadRequest, "invalid id")
 		return
 	}
-	item, err := h.ss(c).ApproveInboundWH(id, h.operator(c))
+	item, err := h.ss(c).ApproveInboundWH(c.Request.Context(), id, h.operator(c), c.GetHeader("Authorization"))
 	if err != nil {
 		httputil.HandleServiceError(c, err)
 		return

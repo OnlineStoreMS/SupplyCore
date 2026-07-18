@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { createInboundFromPackage, scanPackage, type PackageReceive } from '../../api/purchaseExt'
 import { fetchPurchaseOrders, type PurchaseOrderListItem } from '../../api/purchase'
+import { listWarehouses, type Warehouse } from '../../api/warehouse'
 
 const router = useRouter()
 const form = reactive({
   trackingNo: '',
   carrier: '',
+  warehouseId: undefined as number | undefined,
   warehouseName: '',
   packageType: 'normal',
   poId: undefined as number | undefined,
@@ -16,6 +18,7 @@ const form = reactive({
 })
 const last = ref<PackageReceive | null>(null)
 const poList = ref<PurchaseOrderListItem[]>([])
+const warehouses = ref<Warehouse[]>([])
 const scanning = ref(false)
 
 async function loadPOs() {
@@ -25,6 +28,25 @@ async function loadPOs() {
   } catch {
     poList.value = []
   }
+}
+
+async function loadWarehouses() {
+  try {
+    const data = await listWarehouses({ page: 1, pageSize: 200 })
+    warehouses.value = data.list.filter((w) => w.status === 1)
+    const def = warehouses.value.find((w) => w.isDefault === 1)
+    if (def && !form.warehouseId) {
+      form.warehouseId = def.id
+      form.warehouseName = def.name
+    }
+  } catch {
+    warehouses.value = []
+  }
+}
+
+function onWarehouseChange(id: number) {
+  const wh = warehouses.value.find((w) => w.id === id)
+  form.warehouseName = wh?.name || ''
 }
 
 async function onScan() {
@@ -38,6 +60,7 @@ async function onScan() {
     last.value = await scanPackage({
       trackingNo: form.trackingNo.trim(),
       carrier: form.carrier,
+      warehouseId: form.warehouseId,
       warehouseName: form.warehouseName,
       packageType: form.packageType,
       poId: form.poId,
@@ -63,7 +86,10 @@ async function genInbound() {
   }
 }
 
-void loadPOs()
+onMounted(() => {
+  void loadPOs()
+  void loadWarehouses()
+})
 </script>
 
 <template>
@@ -86,7 +112,21 @@ void loadPOs()
           <el-input v-model="form.carrier" style="width: 360px" />
         </el-form-item>
         <el-form-item label="仓库">
-          <el-input v-model="form.warehouseName" style="width: 360px" />
+          <el-select
+            v-model="form.warehouseId"
+            filterable
+            clearable
+            placeholder="选择 WarehouseCore 仓库"
+            style="width: 360px"
+            @change="onWarehouseChange"
+          >
+            <el-option
+              v-for="w in warehouses"
+              :key="w.id"
+              :label="`${w.name} (${w.code})`"
+              :value="w.id"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="关联采购单">
           <el-select v-model="form.poId" clearable filterable style="width: 360px">
@@ -109,6 +149,7 @@ void loadPOs()
       <div v-if="last" class="last-scan">
         <h3>上次扫描</h3>
         <p>物流单号：{{ last.trackingNo }}</p>
+        <p>仓库：{{ last.warehouseName || '-' }}</p>
         <p>采购单号：{{ last.poNo || '-' }}</p>
         <p>入库单号：{{ last.inboundNo || '未生成' }}</p>
         <p>扫描时间：{{ last.createdAt }}</p>
@@ -118,22 +159,20 @@ void loadPOs()
 </template>
 
 <style scoped>
-.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.toolbar h2 { margin: 0; font-size: 18px; }
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
 .scan-panel {
-  background: #fff;
-  padding: 20px;
-  border-radius: 8px;
-  display: grid;
-  grid-template-columns: 1fr 280px;
-  gap: 24px;
+  display: flex;
+  gap: 32px;
 }
 .last-scan {
+  min-width: 280px;
+  padding: 16px;
   background: #f5f7fa;
   border-radius: 8px;
-  padding: 16px;
-  line-height: 1.8;
 }
-.last-scan h3 { margin: 0 0 8px; font-size: 15px; }
-.last-scan p { margin: 0; color: #606266; font-size: 13px; }
 </style>

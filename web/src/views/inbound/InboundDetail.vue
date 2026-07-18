@@ -74,7 +74,10 @@ onMounted(load)
     <el-descriptions v-if="detail" :column="3" border class="meta">
       <el-descriptions-item label="采购单">{{ detail.poNo || '-' }}</el-descriptions-item>
       <el-descriptions-item label="供应商">{{ detail.supplierName || '-' }}</el-descriptions-item>
-      <el-descriptions-item label="仓库">{{ detail.warehouseName || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="仓库">
+        {{ detail.warehouseName || '-' }}
+        <span v-if="detail.warehouseId" class="wh-id">(#{{ detail.warehouseId }})</span>
+      </el-descriptions-item>
       <el-descriptions-item label="物流单号">{{ detail.trackingNo || '-' }}</el-descriptions-item>
       <el-descriptions-item label="总数量">{{ detail.totalQty }}</el-descriptions-item>
       <el-descriptions-item label="总金额">{{ detail.totalAmount }}</el-descriptions-item>
@@ -101,6 +104,7 @@ onMounted(load)
 .toolbar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; gap: 12px; }
 .toolbar h2 { margin: 0 0 8px; font-size: 18px; }
 .actions { display: flex; gap: 8px; }
+.wh-id { color: #909399; font-size: 12px; margin-left: 4px; }
 .meta, .items { background: #fff; }
 .items { margin-top: 16px; }
 </style>

@@ -65,6 +65,7 @@ type PurchaseInboundListItem struct {
 	PoNo          string  `json:"poNo"`
 	SupplierID    uint64  `json:"supplierId"`
 	SupplierName  string  `json:"supplierName"`
+	WarehouseID   uint64  `json:"warehouseId"`
 	WarehouseName string  `json:"warehouseName"`
 	TotalQty      int     `json:"totalQty"`
 	TotalAmount   float64 `json:"totalAmount"`
@@ -98,6 +99,7 @@ type PackageReceiveInput struct {
 
 type PackageReceiveDTO struct {
 	ID            uint64 `json:"id"`
+	WarehouseID   uint64 `json:"warehouseId"`
 	WarehouseName string `json:"warehouseName"`
 	Carrier       string `json:"carrier"`
 	TrackingNo    string `json:"trackingNo"`

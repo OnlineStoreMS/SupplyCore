@@ -4,12 +4,15 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { createPurchaseInbound } from '../../api/purchaseExt'
 import { fetchPurchaseOrders, fetchPurchaseOrder, type PurchaseOrderListItem } from '../../api/purchase'
+import { listWarehouses, type Warehouse } from '../../api/warehouse'
 
 const router = useRouter()
 const saving = ref(false)
 const poList = ref<PurchaseOrderListItem[]>([])
+const warehouses = ref<Warehouse[]>([])
 const form = reactive({
   poId: undefined as number | undefined,
+  warehouseId: undefined as number | undefined,
   warehouseName: '',
   trackingNo: '',
   platformOrderNo: '',
@@ -28,6 +31,25 @@ const items = ref<{
 async function loadPOs() {
   const data = await fetchPurchaseOrders({ page: 1, pageSize: 100 })
   poList.value = data.list.filter((p) => !['completed', 'cancelled'].includes(p.status))
+}
+
+async function loadWarehouses() {
+  try {
+    const data = await listWarehouses({ page: 1, pageSize: 200 })
+    warehouses.value = data.list.filter((w) => w.status === 1)
+    const def = warehouses.value.find((w) => w.isDefault === 1)
+    if (def && !form.warehouseId) {
+      form.warehouseId = def.id
+      form.warehouseName = def.name
+    }
+  } catch {
+    warehouses.value = []
+  }
+}
+
+function onWarehouseChange(id: number) {
+  const wh = warehouses.value.find((w) => w.id === id)
+  form.warehouseName = wh?.name || ''
 }
 
 async function onPoChange(poId: number) {
@@ -49,6 +71,10 @@ async function submit() {
     ElMessage.warning('请选择采购单')
     return
   }
+  if (!form.warehouseId) {
+    ElMessage.warning('请选择入库仓库')
+    return
+  }
   if (!items.value.length) {
     ElMessage.warning('没有可入库明细')
     return
@@ -57,6 +83,7 @@ async function submit() {
   try {
     const created = await createPurchaseInbound({
       poId: form.poId,
+      warehouseId: form.warehouseId,
       warehouseName: form.warehouseName,
       trackingNo: form.trackingNo,
       platformOrderNo: form.platformOrderNo,
@@ -72,7 +99,10 @@ async function submit() {
   }
 }
 
-onMounted(loadPOs)
+onMounted(() => {
+  void loadPOs()
+  void loadWarehouses()
+})
 </script>
 
 <template>
@@ -90,8 +120,22 @@ onMounted(loadPOs)
           <el-option v-for="p in poList" :key="p.id" :label="`${p.poNo} · ${p.supplierName}`" :value="p.id" />
         </el-select>
       </el-form-item>
-      <el-form-item label="入库仓库">
-        <el-input v-model="form.warehouseName" style="width: 360px" />
+      <el-form-item label="入库仓库" required>
+        <el-select
+          v-model="form.warehouseId"
+          filterable
+          clearable
+          placeholder="选择仓储中心仓库"
+          style="width: 360px"
+          @change="onWarehouseChange"
+        >
+          <el-option
+            v-for="w in warehouses"
+            :key="w.id"
+            :label="`${w.name} (${w.code})`"
+            :value="w.id"
+          />
+        </el-select>
       </el-form-item>
       <el-form-item label="物流单号">
         <el-input v-model="form.trackingNo" style="width: 360px" />
@@ -118,6 +162,5 @@ onMounted(loadPOs)
 
 <style scoped>
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.toolbar h2 { margin: 0; font-size: 18px; }
-.form { background: #fff; padding: 16px; margin-bottom: 16px; border-radius: 8px; }
+.form { margin-bottom: 16px; }
 </style>

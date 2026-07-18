@@ -1,10 +1,13 @@
 package service
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"supplycore/internal/dto"
+	"supplycore/internal/integrations/warehousecore"
 	"supplycore/internal/model"
 	"supplycore/internal/repo"
 
@@ -13,15 +16,16 @@ import (
 
 type PurchaseExtService struct {
 	repos    *repo.Repos
+	wc       *warehousecore.Client
 	tenantID uint64
 }
 
-func NewPurchaseExtService(repos *repo.Repos) *PurchaseExtService {
-	return &PurchaseExtService{repos: repos}
+func NewPurchaseExtService(repos *repo.Repos, wc *warehousecore.Client) *PurchaseExtService {
+	return &PurchaseExtService{repos: repos, wc: wc}
 }
 
 func (s *PurchaseExtService) ForTenant(tenantID uint64) *PurchaseExtService {
-	return &PurchaseExtService{repos: s.repos, tenantID: repo.NormalizeTenantID(tenantID)}
+	return &PurchaseExtService{repos: s.repos, wc: s.wc, tenantID: repo.NormalizeTenantID(tenantID)}
 }
 
 // ---- Purchase Accounts ----
@@ -123,7 +127,7 @@ func (s *PurchaseExtService) ListInbounds(status, keyword string, page, pageSize
 	for _, m := range list {
 		item := dto.PurchaseInboundListItem{
 			ID: m.ID, InboundNo: m.InboundNo, Status: m.Status, POID: m.POID, PoNo: m.PoNo,
-			SupplierID: m.SupplierID, WarehouseName: m.WarehouseName, TotalQty: m.TotalQty,
+			SupplierID: m.SupplierID, WarehouseID: m.WarehouseID, WarehouseName: m.WarehouseName, TotalQty: m.TotalQty,
 			TotalAmount: m.TotalAmount, TrackingNo: m.TrackingNo, CreatorName: m.CreatorName,
 			CreatedAt: formatTime(m.CreatedAt),
 		}
@@ -207,7 +211,7 @@ func (s *PurchaseExtService) CreateInbound(in *dto.PurchaseInboundInput, creator
 	return s.GetInbound(m.ID)
 }
 
-func (s *PurchaseExtService) ApproveInboundWH(id uint64, auditor string) (*dto.PurchaseInboundDetail, error) {
+func (s *PurchaseExtService) ApproveInboundWH(ctx context.Context, id uint64, auditor, bearerToken string) (*dto.PurchaseInboundDetail, error) {
 	m, err := s.repos.PurchaseInbound.ForTenant(s.tenantID).GetWithItems(id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
@@ -218,6 +222,14 @@ func (s *PurchaseExtService) ApproveInboundWH(id uint64, auditor string) (*dto.P
 	if m.Status != model.InboundStatusDraft && m.Status != model.InboundStatusPendingWH {
 		return nil, errors.New("当前状态不可入库审核")
 	}
+	if s.wc != nil && s.wc.Enabled() {
+		if m.WarehouseID == 0 {
+			return nil, errors.New("已启用 WarehouseCore，请先选择入库仓库后再进行仓储审核")
+		}
+		if err := s.postInboundToWarehouse(ctx, m, bearerToken); err != nil {
+			return nil, fmt.Errorf("WarehouseCore 过账失败: %w", err)
+		}
+	}
 	now := time.Now()
 	m.Status = model.InboundStatusPendingFinance
 	m.WHAuditorName = auditor
@@ -225,11 +237,43 @@ func (s *PurchaseExtService) ApproveInboundWH(id uint64, auditor string) (*dto.P
 	if err := s.repos.PurchaseInbound.ForTenant(s.tenantID).Save(m); err != nil {
 		return nil, err
 	}
-	// 回写采购单已收数量
 	if m.POID > 0 {
-		_ = s.applyInboundToPO(m)
+		if err := s.applyInboundToPO(m); err != nil {
+			return nil, err
+		}
 	}
 	return s.GetInbound(id)
+}
+
+func (s *PurchaseExtService) postInboundToWarehouse(ctx context.Context, m *model.PurchaseInbound, bearerToken string) error {
+	items := make([]warehousecore.PurchaseInboundItem, 0, len(m.Items))
+	for _, it := range m.Items {
+		if it.InboundQty <= 0 {
+			continue
+		}
+		invSkuID, err := s.wc.ResolveInvSkuID(ctx, bearerToken, it.SkuID, it.SkuCode)
+		if err != nil {
+			return fmt.Errorf("SKU %s: %w", it.SkuCode, err)
+		}
+		items = append(items, warehousecore.PurchaseInboundItem{
+			InvSkuID: invSkuID,
+			Qty:      float64(it.InboundQty),
+			Cost:     it.UnitPrice,
+			Remark:   it.Remark,
+		})
+	}
+	if len(items) == 0 {
+		return errors.New("无有效入库明细可过账")
+	}
+	return s.wc.PostPurchaseInbound(ctx, bearerToken, &warehousecore.PurchaseInboundRequest{
+		WarehouseID: m.WarehouseID,
+		LocationID:  0,
+		RefDocType:  "purchase_inbound",
+		RefDocID:    m.ID,
+		RefDocNo:    m.InboundNo,
+		Remark:      m.Remark,
+		Items:       items,
+	})
 }
 
 func (s *PurchaseExtService) ApproveInboundFinance(id uint64, auditor string) (*dto.PurchaseInboundDetail, error) {
@@ -316,7 +360,7 @@ func (s *PurchaseExtService) applyInboundToPO(m *model.PurchaseInbound) error {
 func (s *PurchaseExtService) toInboundDetail(m *model.PurchaseInbound) *dto.PurchaseInboundDetail {
 	list := dto.PurchaseInboundListItem{
 		ID: m.ID, InboundNo: m.InboundNo, Status: m.Status, POID: m.POID, PoNo: m.PoNo,
-		SupplierID: m.SupplierID, WarehouseName: m.WarehouseName, TotalQty: m.TotalQty,
+		SupplierID: m.SupplierID, WarehouseID: m.WarehouseID, WarehouseName: m.WarehouseName, TotalQty: m.TotalQty,
 		TotalAmount: m.TotalAmount, TrackingNo: m.TrackingNo, CreatorName: m.CreatorName,
 		CreatedAt: formatTime(m.CreatedAt),
 	}
@@ -357,7 +401,7 @@ func (s *PurchaseExtService) ListPackageReceives(keyword string, page, pageSize 
 	out := make([]dto.PackageReceiveDTO, 0, len(list))
 	for _, m := range list {
 		out = append(out, dto.PackageReceiveDTO{
-			ID: m.ID, WarehouseName: m.WarehouseName, Carrier: m.Carrier, TrackingNo: m.TrackingNo,
+			ID: m.ID, WarehouseID: m.WarehouseID, WarehouseName: m.WarehouseName, Carrier: m.Carrier, TrackingNo: m.TrackingNo,
 			PackageType: m.PackageType, POID: m.POID, PoNo: m.PoNo, InboundID: m.InboundID,
 			InboundNo: m.InboundNo, ScannerName: m.ScannerName, Remark: m.Remark, CreatedAt: formatTime(m.CreatedAt),
 		})
@@ -387,7 +431,7 @@ func (s *PurchaseExtService) ScanPackage(in *dto.PackageReceiveInput, scanner st
 		return nil, err
 	}
 	d := dto.PackageReceiveDTO{
-		ID: m.ID, WarehouseName: m.WarehouseName, Carrier: m.Carrier, TrackingNo: m.TrackingNo,
+		ID: m.ID, WarehouseID: m.WarehouseID, WarehouseName: m.WarehouseName, Carrier: m.Carrier, TrackingNo: m.TrackingNo,
 		PackageType: m.PackageType, POID: m.POID, PoNo: m.PoNo, ScannerName: m.ScannerName,
 		Remark: m.Remark, CreatedAt: formatTime(m.CreatedAt),
 	}
@@ -421,7 +465,7 @@ func (s *PurchaseExtService) CreateInboundFromPackage(receiveID uint64, creator 
 		})
 	}
 	detail, err := s.CreateInbound(&dto.PurchaseInboundInput{
-		POID: po.ID, SupplierID: po.SupplierID, WarehouseName: rec.WarehouseName,
+		POID: po.ID, SupplierID: po.SupplierID, WarehouseID: rec.WarehouseID, WarehouseName: rec.WarehouseName,
 		TrackingNo: rec.TrackingNo, BuyerName: po.BuyerName, Items: items,
 	}, creator)
 	if err != nil {

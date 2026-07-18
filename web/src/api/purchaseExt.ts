@@ -41,6 +41,7 @@ export interface PurchaseInboundListItem {
   poNo: string
   supplierId: number
   supplierName: string
+  warehouseId: number
   warehouseName: string
   totalQty: number
   totalAmount: number
@@ -118,6 +119,7 @@ export async function voidInbound(id: number) {
 
 export interface PackageReceive {
   id: number
+  warehouseId: number
   warehouseName: string
   carrier: string
   trackingNo: string

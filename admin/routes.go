@@ -2,7 +2,7 @@ package admin
 
 import "github.com/gin-gonic/gin"
 
-func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *OfferHandler, poH *PurchaseOrderHandler, trackH *POTrackingHandler, skuH *ProductSkuHandler, extH *PurchaseExtHandler) {
+func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *OfferHandler, poH *PurchaseOrderHandler, trackH *POTrackingHandler, skuH *ProductSkuHandler, whH *WarehouseHandler, extH *PurchaseExtHandler) {
 	g.GET("/suppliers", supplierH.List)
 	g.POST("/suppliers", supplierH.Create)
 	g.GET("/suppliers/:id", supplierH.Get)
@@ -23,6 +23,9 @@ func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *Offe
 	g.GET("/skus/:id/supply-options", offerH.SupplyOptions)
 
 	g.GET("/product-skus/search", skuH.Search)
+
+	g.GET("/warehouses", whH.List)
+	g.GET("/warehouses/:id/locations", whH.ListLocations)
 
 	g.GET("/purchase-orders", poH.List)
 	g.POST("/purchase-orders", poH.Create)
