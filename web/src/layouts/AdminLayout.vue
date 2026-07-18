@@ -48,7 +48,6 @@ const breadcrumbs = computed(() => {
   if (route.path.includes('/edit') && route.path.includes('purchase-orders')) return ['采购订单', '编辑']
   if (route.path.startsWith('/purchase-orders/')) return ['采购订单', '详情']
   if (route.path.startsWith('/purchase-orders')) return ['采购订单', '列表']
-  if (route.path.startsWith('/sales-orders')) return ['销售订单', title]
   return ['首页', title]
 })
 </script>

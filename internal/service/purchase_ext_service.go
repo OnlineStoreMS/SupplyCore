@@ -2,7 +2,6 @@ package service
 
 import (
 	"errors"
-	"strconv"
 	"time"
 
 	"supplycore/internal/dto"
@@ -624,72 +623,7 @@ func (s *PurchaseExtService) toReturnDetail(m *model.PurchaseReturn) *dto.Purcha
 // ---- Suggestions (缺货/预警/无库存) ----
 
 func (s *PurchaseExtService) ListSuggestions(source string) ([]dto.StockoutSuggestionItem, error) {
-	// 基于销售单明细 + 供货报价估算建议（无独立库存服务时的简化实现）
-	sos, _, err := s.repos.SalesOrder.ForTenant(s.tenantID).List(repo.SOListFilter{Page: 1, PageSize: 200})
-	if err != nil {
-		return nil, err
-	}
-	type agg struct {
-		skuID, supplierID, offerID uint64
-		qty                        int
-		price                      float64
-		skuCode, skuName, supplier string
-	}
-	bySku := map[uint64]*agg{}
-	for _, so := range sos {
-		detail, err := s.repos.SalesOrder.ForTenant(s.tenantID).GetWithItems(so.ID)
-		if err != nil {
-			continue
-		}
-		for _, it := range detail.Items {
-			a := bySku[it.SkuID]
-			if a == nil {
-				a = &agg{skuID: it.SkuID, qty: 0}
-				bySku[it.SkuID] = a
-			}
-			a.qty += it.Qty
-			opts, err := s.repos.Offer.ForTenant(s.tenantID).ListBySku(it.SkuID, true)
-			if err != nil || len(opts) == 0 {
-				continue
-			}
-			offer := opts[0]
-			for _, o := range opts {
-				if o.IsPrimary {
-					offer = o
-					break
-				}
-			}
-			a.offerID = offer.ID
-			a.supplierID = offer.SupplierID
-			a.price = offer.SupplyPrice
-			a.skuCode = offer.SupplierSkuCode
-			if a.skuCode == "" {
-				a.skuCode = strconv.FormatUint(it.SkuID, 10)
-			}
-			if sup, err := s.repos.Supplier.ForTenant(s.tenantID).GetByID(offer.SupplierID); err == nil {
-				a.supplier = sup.Name
-			}
-		}
-	}
-	out := make([]dto.StockoutSuggestionItem, 0, len(bySku))
-	for _, a := range bySku {
-		src := source
-		if src == "" {
-			src = "stockout"
-		}
-		suggest := a.qty
-		if src == "warning" {
-			suggest = a.qty // 简化：预警量暂等同销量
-		}
-		if src == "no_stock" && a.qty == 0 {
-			continue
-		}
-		out = append(out, dto.StockoutSuggestionItem{
-			SkuID: a.skuID, SkuCode: a.skuCode, SkuName: a.skuName,
-			SupplierID: a.supplierID, SupplierName: a.supplier,
-			StockoutQty: a.qty, SalesQty: a.qty, SuggestPurchase: suggest,
-			UnitPrice: a.price, OfferID: a.offerID, Source: src,
-		})
-	}
-	return out, nil
+	// 采购建议依赖 WarehouseCore 库存上下限；对接前返回空列表占位。
+	_ = source
+	return []dto.StockoutSuggestionItem{}, nil
 }

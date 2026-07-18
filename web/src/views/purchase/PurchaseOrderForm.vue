@@ -178,7 +178,7 @@ async function handleSave() {
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="关联销售单">
+            <el-form-item label="外部订单 ID">
               <el-input-number v-model="form.refSoId" :min="0" controls-position="right" style="width: 100%" />
             </el-form-item>
           </el-col>

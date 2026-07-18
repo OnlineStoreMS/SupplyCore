@@ -129,13 +129,8 @@ async function handleDelete() {
             <el-descriptions-item label="供应商">{{ po.supplierName }}（{{ po.supplierCode }}）</el-descriptions-item>
             <el-descriptions-item label="付款状态">{{ PAY_STATUS_MAP[po.payStatus] || po.payStatus }}</el-descriptions-item>
             <el-descriptions-item label="履约类型">{{ po.fulfillmentType === 'dropship' ? '代发直邮' : '采购入仓' }}</el-descriptions-item>
-            <el-descriptions-item label="关联销售单">
-              <el-button v-if="po.refSoId" link type="primary" @click="router.push(`/sales-orders/${po.refSoId}`)">
-                #{{ po.refSoId }}
-              </el-button>
-              <span v-else>—</span>
-            </el-descriptions-item>
-            <el-descriptions-item label="Trace ID">{{ po.refTraceId || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="外部订单 ID">{{ po.refSoId || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="外部 Trace">{{ po.refTraceId || '—' }}</el-descriptions-item>
             <el-descriptions-item label="采购总额">¥{{ po.totalAmount.toFixed(2) }} {{ po.currency }}</el-descriptions-item>
             <el-descriptions-item label="预计到货">{{ po.expectedArrivalDate || '—' }}</el-descriptions-item>
             <el-descriptions-item label="采购员">{{ po.buyerName || '—' }}</el-descriptions-item>

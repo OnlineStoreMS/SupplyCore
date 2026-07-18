@@ -2,7 +2,7 @@ package admin
 
 import "github.com/gin-gonic/gin"
 
-func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *OfferHandler, poH *PurchaseOrderHandler, trackH *POTrackingHandler, soH *SalesOrderHandler, skuH *ProductSkuHandler, extH *PurchaseExtHandler) {
+func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *OfferHandler, poH *PurchaseOrderHandler, trackH *POTrackingHandler, skuH *ProductSkuHandler, extH *PurchaseExtHandler) {
 	g.GET("/suppliers", supplierH.List)
 	g.POST("/suppliers", supplierH.Create)
 	g.GET("/suppliers/:id", supplierH.Get)
@@ -49,17 +49,6 @@ func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *Offe
 	g.GET("/purchase-orders/:id/attachments", trackH.ListAttachments)
 	g.POST("/purchase-orders/:id/attachments", trackH.CreateAttachment)
 	g.DELETE("/purchase-orders/:id/attachments/:attachmentId", trackH.DeleteAttachment)
-
-	g.GET("/sales-orders", soH.List)
-	g.POST("/sales-orders", soH.Create)
-	g.GET("/sales-orders/:id", soH.Get)
-	g.PUT("/sales-orders/:id", soH.Update)
-	g.DELETE("/sales-orders/:id", soH.Delete)
-	g.POST("/sales-orders/:id/confirm", soH.Confirm)
-	g.POST("/sales-orders/:id/evaluate-sourcing", soH.EvaluateSourcing)
-	g.POST("/sales-orders/:id/create-purchase-orders", soH.CreatePurchaseOrders)
-
-	g.POST("/sourcing/dropship-purchase-order", soH.DropshipPurchaseOrder)
 
 	// M5 · 采购扩展（对齐普源：账号 / 入库 / 收包 / 退回 / 建议）
 	g.GET("/purchase-accounts", extH.ListAccounts)

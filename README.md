@@ -26,21 +26,14 @@
 - MinIO 附件上传（供货商销售单、付款截图等，`storage.driver: minio`）
 - 采购单详情 Tab：物流 / 付款 / 附件
 
-### M4 · 销售单与寻源（OMS 衔接）
-- 销售单 `sales_orders` / 明细 `sales_order_items`，自动生成 `trace_id`
-- 寻源评估：按 SKU 拉取 `supply-options`，推荐代发报价
-- 一键按供应商分组生成代发采购单，写入 `ref_so_id` / `ref_trace_id`
-- 外部 OMS：`POST /api/v1/admin/sourcing/dropship-purchase-order`
-- 采购单列表支持 `refSoId` / `refTraceId` 筛选
-- 前端：销售订单列表、新建/编辑、详情寻源与生成采购单
-
-### M5 · 采购闭环（对齐普源云 ERP 采购）
-- **采购建议**：缺货 / 预警 / 无库存（基于销售单+供货报价）
+### M4 · 采购闭环（对齐普源云 ERP 采购）
+- **采购建议**：缺货 / 预警 / 无库存（对接 WarehouseCore 后生效）
 - **采购账号**：1688 / 淘供销 / 其他渠道账号管理
 - **收包入库**：收货记录、包裹扫描入库（可生成入库单）
 - **采购入库**：入库单、入库审核、财务审核；回写采购单 `receivedQty`
 - **采购入库分拣**：SKU 扫描作业台（骨架）
 - **采购退回**：退回单、退回审核、财务审核
+- 采购单可选写入外部订单引用 `ref_so_id` / `ref_trace_id`（供 OMS 对接）
 
 ## 快速开始
 

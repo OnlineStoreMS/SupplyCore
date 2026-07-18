@@ -53,7 +53,7 @@ onMounted(load)
     <div class="toolbar">
       <div>
         <h2>{{ title }}</h2>
-        <p class="hint">基于销售订单与供货报价生成采购建议（库存对接后可升级为真实预警算法）</p>
+        <p class="hint">对接 WarehouseCore 库存后生成缺货 / 预警 / 无库存采购建议</p>
       </div>
       <el-button @click="load">刷新</el-button>
     </div>

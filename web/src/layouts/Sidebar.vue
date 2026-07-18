@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  HomeFilled, OfficeBuilding, ShoppingCart, Sell,
+  HomeFilled, OfficeBuilding, ShoppingCart,
   Box, Van, RefreshLeft, Warning, User,
 } from '@element-plus/icons-vue'
 
@@ -96,11 +96,6 @@ function navigate(path: string) {
         <el-menu-item index="/suppliers" @click="navigate('/suppliers')">供应商信息</el-menu-item>
         <el-menu-item index="/sku-offers" @click="navigate('/sku-offers')">SKU 供货报价</el-menu-item>
       </el-sub-menu>
-
-      <el-menu-item index="/sales-orders" @click="navigate('/sales-orders')">
-        <el-icon><Sell /></el-icon>
-        <span>销售订单</span>
-      </el-menu-item>
     </el-menu>
   </aside>
 </template>
