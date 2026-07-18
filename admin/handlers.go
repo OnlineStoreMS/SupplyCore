@@ -28,7 +28,8 @@ func (h *SupplierHandler) ss(c *gin.Context) *service.SupplierService {
 
 func (h *SupplierHandler) List(c *gin.Context) {
 	page, pageSize := httputil.ParsePage(c)
-	list, total, err := h.ss(c).List(c.Query("keyword"), page, pageSize)
+	categoryID, _ := strconv.ParseUint(c.Query("categoryId"), 10, 64)
+	list, total, err := h.ss(c).List(c.Query("keyword"), categoryID, page, pageSize)
 	if err != nil {
 		response.Fail(c, http.StatusInternalServerError, err.Error())
 		return
@@ -90,6 +91,61 @@ func (h *SupplierHandler) Delete(c *gin.Context) {
 		return
 	}
 	if err := h.ss(c).Delete(id); err != nil {
+		httputil.HandleServiceError(c, err)
+		return
+	}
+	response.OK(c, gin.H{"deleted": true})
+}
+
+func (h *SupplierHandler) ListCategories(c *gin.Context) {
+	list, err := h.ss(c).ListCategories()
+	if err != nil {
+		response.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(c, list)
+}
+
+func (h *SupplierHandler) CreateCategory(c *gin.Context) {
+	var in dto.SupplierCategoryDTO
+	if err := c.ShouldBindJSON(&in); err != nil {
+		response.Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := h.ss(c).CreateCategory(&in)
+	if err != nil {
+		httputil.HandleServiceError(c, err)
+		return
+	}
+	response.Created(c, item)
+}
+
+func (h *SupplierHandler) UpdateCategory(c *gin.Context) {
+	id, err := httputil.ParseID(c)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var in dto.SupplierCategoryDTO
+	if err := c.ShouldBindJSON(&in); err != nil {
+		response.Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := h.ss(c).UpdateCategory(id, &in)
+	if err != nil {
+		httputil.HandleServiceError(c, err)
+		return
+	}
+	response.OK(c, item)
+}
+
+func (h *SupplierHandler) DeleteCategory(c *gin.Context) {
+	id, err := httputil.ParseID(c)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := h.ss(c).DeleteCategory(id); err != nil {
 		httputil.HandleServiceError(c, err)
 		return
 	}

@@ -4,6 +4,7 @@ import "gorm.io/gorm"
 
 type Repos struct {
 	Supplier         *SupplierRepo
+	SupplierCategory *SupplierCategoryRepo
 	Offer            *OfferRepo
 	PurchaseOrder    *PurchaseOrderRepo
 	Shipment         *ShipmentRepo
@@ -17,7 +18,8 @@ type Repos struct {
 
 func New(db *gorm.DB) *Repos {
 	return &Repos{
-		Supplier:        NewSupplierRepo(db),
+		Supplier:         NewSupplierRepo(db),
+		SupplierCategory: NewSupplierCategoryRepo(db),
 		Offer:           NewOfferRepo(db),
 		PurchaseOrder:   NewPurchaseOrderRepo(db),
 		Shipment:        NewShipmentRepo(db),

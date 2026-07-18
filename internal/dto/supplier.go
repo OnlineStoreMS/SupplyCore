@@ -1,13 +1,33 @@
 package dto
 
+type SupplierCategoryDTO struct {
+	Name     string `json:"name" binding:"required"`
+	ParentID uint64 `json:"parentId"`
+	Sort     int    `json:"sort"`
+	Status   int8   `json:"status"`
+	Remark   string `json:"remark"`
+}
+
 type SupplierDTO struct {
+	CategoryID          uint64 `json:"categoryId"`
+	CategoryName        string `json:"categoryName"`
 	Code                string `json:"code" binding:"required"`
 	Name                string `json:"name" binding:"required"`
 	ShortName           string `json:"shortName"`
 	Status              int8   `json:"status"`
+	BuyerName           string `json:"buyerName"`
+	CutOffTime          string `json:"cutOffTime"`
+	ArrivalDays         int    `json:"arrivalDays"`
+	PaymentDays         int    `json:"paymentDays"`
 	ContactName         string `json:"contactName"`
+	Address             string `json:"address"`
+	OfficePhone         string `json:"officePhone"`
+	Mobile              string `json:"mobile"`
 	Phone               string `json:"phone"`
+	WangwangID          string `json:"wangwangId"`
+	QQ                  string `json:"qq"`
 	Email               string `json:"email"`
+	Website             string `json:"website"`
 	Remark              string `json:"remark"`
 	DefaultPaymentTerms string `json:"defaultPaymentTerms"`
 	BankName            string `json:"bankName"`

@@ -1,19 +1,41 @@
 import client, { unwrap, type PageData } from './client'
 
+export interface SupplierCategory {
+  id: number
+  name: string
+  parentId?: number
+  sort?: number
+  status: number
+  remark?: string
+}
+
 export interface Supplier {
   id: number
+  categoryId?: number
+  categoryName?: string
   code: string
   name: string
   shortName?: string
   status: number
+  buyerName?: string
+  cutOffTime?: string
+  arrivalDays?: number
+  paymentDays?: number
   contactName?: string
+  address?: string
+  officePhone?: string
+  mobile?: string
   phone?: string
+  wangwangId?: string
+  qq?: string
   email?: string
+  website?: string
   remark?: string
   defaultPaymentTerms?: string
   bankName?: string
   bankAccount?: string
   accountName?: string
+  createdAt?: string
 }
 
 export interface SupplierAddress {
@@ -52,9 +74,31 @@ export interface SkuOffer {
   remark?: string
 }
 
-export async function fetchSuppliers(keyword?: string, page = 1, pageSize = 20) {
+export async function fetchSupplierCategories() {
+  return unwrap<SupplierCategory[]>(await client.get('/supplier-categories'))
+}
+
+export async function createSupplierCategory(data: Partial<SupplierCategory>) {
+  return unwrap<SupplierCategory>(await client.post('/supplier-categories', data))
+}
+
+export async function updateSupplierCategory(id: number, data: Partial<SupplierCategory>) {
+  return unwrap<SupplierCategory>(await client.put(`/supplier-categories/${id}`, data))
+}
+
+export async function deleteSupplierCategory(id: number) {
+  return unwrap(await client.delete(`/supplier-categories/${id}`))
+}
+
+export async function fetchSuppliers(params?: {
+  keyword?: string
+  categoryId?: number
+  page?: number
+  pageSize?: number
+}) {
+  const { keyword, categoryId, page = 1, pageSize = 20 } = params ?? {}
   const res = await client.get('/suppliers', {
-    params: { keyword, page, pageSize },
+    params: { keyword, categoryId: categoryId || undefined, page, pageSize },
   })
   return unwrap<PageData<Supplier>>(res)
 }
@@ -106,4 +150,9 @@ export async function updateSkuOffer(id: number, data: Partial<SkuOffer>) {
 
 export async function deleteSkuOffer(id: number) {
   return unwrap(await client.delete(`/sku-offers/${id}`))
+}
+
+/** Display mobile with fallback to legacy phone field */
+export function supplierMobile(row: Supplier): string {
+  return row.mobile || row.phone || ''
 }

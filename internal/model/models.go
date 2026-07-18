@@ -2,16 +2,42 @@ package model
 
 import "time"
 
+type SupplierCategory struct {
+	ID        uint64    `gorm:"primaryKey" json:"id"`
+	TenantID  uint64    `gorm:"index;not null" json:"tenantId"`
+	Name      string    `gorm:"size:64;not null" json:"name"`
+	ParentID  uint64    `gorm:"index;default:0" json:"parentId"`
+	Sort      int       `gorm:"default:0" json:"sort"`
+	Status    int8      `gorm:"default:1;not null" json:"status"`
+	Remark    string    `gorm:"type:text" json:"remark"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (SupplierCategory) TableName() string { return "supplier_categories" }
+
 type Supplier struct {
 	ID                  uint64    `gorm:"primaryKey" json:"id"`
 	TenantID            uint64    `gorm:"index;not null" json:"tenantId"`
+	CategoryID          uint64    `gorm:"index" json:"categoryId"`
+	CategoryName        string    `gorm:"size:64" json:"categoryName"`
 	Code                string    `gorm:"size:64;not null" json:"code"`
 	Name                string    `gorm:"size:128;not null" json:"name"`
 	ShortName           string    `gorm:"size:64" json:"shortName"`
 	Status              int8      `gorm:"default:1;not null" json:"status"`
+	BuyerName           string    `gorm:"size:64" json:"buyerName"`
+	CutOffTime          string    `gorm:"size:16;default:00:01" json:"cutOffTime"`
+	ArrivalDays         int       `json:"arrivalDays"`
+	PaymentDays         int       `json:"paymentDays"`
 	ContactName         string    `gorm:"size:64" json:"contactName"`
+	Address             string    `gorm:"size:255" json:"address"`
+	OfficePhone         string    `gorm:"size:32" json:"officePhone"`
+	Mobile              string    `gorm:"size:32" json:"mobile"`
 	Phone               string    `gorm:"size:32" json:"phone"`
+	WangwangID          string    `gorm:"size:64" json:"wangwangId"`
+	QQ                  string    `gorm:"size:32" json:"qq"`
 	Email               string    `gorm:"size:128" json:"email"`
+	Website             string    `gorm:"size:255" json:"website"`
 	Remark              string    `gorm:"type:text" json:"remark"`
 	DefaultPaymentTerms string    `gorm:"size:255" json:"defaultPaymentTerms"`
 	BankName            string    `gorm:"size:128" json:"bankName"`

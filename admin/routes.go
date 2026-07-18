@@ -3,6 +3,11 @@ package admin
 import "github.com/gin-gonic/gin"
 
 func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *OfferHandler, poH *PurchaseOrderHandler, trackH *POTrackingHandler, skuH *ProductSkuHandler, whH *WarehouseHandler, extH *PurchaseExtHandler) {
+	g.GET("/supplier-categories", supplierH.ListCategories)
+	g.POST("/supplier-categories", supplierH.CreateCategory)
+	g.PUT("/supplier-categories/:id", supplierH.UpdateCategory)
+	g.DELETE("/supplier-categories/:id", supplierH.DeleteCategory)
+
 	g.GET("/suppliers", supplierH.List)
 	g.POST("/suppliers", supplierH.Create)
 	g.GET("/suppliers/:id", supplierH.Get)

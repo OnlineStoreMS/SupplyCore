@@ -9,6 +9,7 @@ import {
   createSupplierAddress,
   updateSupplierAddress,
   deleteSupplierAddress,
+  supplierMobile,
   type Supplier,
   type SupplierAddress,
 } from '../../api/supplier'
@@ -82,19 +83,29 @@ async function handleDeleteAddress(row: SupplierAddress) {
         <span>{{ supplier.name }}（{{ supplier.code }}）</span>
       </template>
       <el-descriptions :column="2" border>
+        <el-descriptions-item label="类别">{{ supplier.categoryName || '—' }}</el-descriptions-item>
         <el-descriptions-item label="简称">{{ supplier.shortName || '—' }}</el-descriptions-item>
         <el-descriptions-item label="状态">
           <el-tag :type="supplier.status === 1 ? 'success' : 'info'" size="small">
             {{ supplier.status === 1 ? '启用' : '停用' }}
           </el-tag>
         </el-descriptions-item>
+        <el-descriptions-item label="采购员">{{ supplier.buyerName || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="截单时间">{{ supplier.cutOffTime || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="到货天数">{{ supplier.arrivalDays ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item label="账期天数">{{ supplier.paymentDays ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item label="账期说明">{{ supplier.defaultPaymentTerms || '—' }}</el-descriptions-item>
         <el-descriptions-item label="联系人">{{ supplier.contactName || '—' }}</el-descriptions-item>
-        <el-descriptions-item label="电话">{{ supplier.phone || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="地址">{{ supplier.address || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="办公电话">{{ supplier.officePhone || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="手机">{{ supplierMobile(supplier) || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="旺旺ID">{{ supplier.wangwangId || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="QQ">{{ supplier.qq || '—' }}</el-descriptions-item>
         <el-descriptions-item label="邮箱">{{ supplier.email || '—' }}</el-descriptions-item>
-        <el-descriptions-item label="账期">{{ supplier.defaultPaymentTerms || '—' }}</el-descriptions-item>
-        <el-descriptions-item label="收款信息" :span="2">
-          {{ [supplier.bankName, supplier.accountName, supplier.bankAccount].filter(Boolean).join(' / ') || '—' }}
-        </el-descriptions-item>
+        <el-descriptions-item label="网址">{{ supplier.website || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="账号">{{ supplier.bankAccount || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="开户行">{{ supplier.bankName || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="户名">{{ supplier.accountName || '—' }}</el-descriptions-item>
         <el-descriptions-item label="备注" :span="2">{{ supplier.remark || '—' }}</el-descriptions-item>
       </el-descriptions>
     </el-card>

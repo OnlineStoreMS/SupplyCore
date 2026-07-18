@@ -23,8 +23,15 @@ func (s *SupplierService) ForTenant(tenantID uint64) *SupplierService {
 	return &SupplierService{repos: s.repos, tenantID: repo.NormalizeTenantID(tenantID)}
 }
 
-func (s *SupplierService) List(keyword string, page, pageSize int) ([]model.Supplier, int64, error) {
-	return s.repos.Supplier.ForTenant(s.tenantID).List(keyword, page, pageSize)
+func (s *SupplierService) List(keyword string, categoryID uint64, page, pageSize int) ([]model.Supplier, int64, error) {
+	list, total, err := s.repos.Supplier.ForTenant(s.tenantID).List(keyword, categoryID, page, pageSize)
+	if err != nil {
+		return nil, 0, err
+	}
+	for i := range list {
+		normalizeSupplierPhones(&list[i])
+	}
+	return list, total, nil
 }
 
 func (s *SupplierService) Get(id uint64) (*model.Supplier, error) {
@@ -32,7 +39,11 @@ func (s *SupplierService) Get(id uint64) (*model.Supplier, error) {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
 	}
-	return item, err
+	if err != nil {
+		return nil, err
+	}
+	normalizeSupplierPhones(item)
+	return item, nil
 }
 
 func (s *SupplierService) Create(in *dto.SupplierDTO) (*model.Supplier, error) {
@@ -42,19 +53,18 @@ func (s *SupplierService) Create(in *dto.SupplierDTO) (*model.Supplier, error) {
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
-	item := &model.Supplier{
-		Code: in.Code, Name: in.Name, ShortName: in.ShortName,
-		Status: defaultStatus(in.Status), ContactName: in.ContactName,
-		Phone: in.Phone, Email: in.Email, Remark: in.Remark,
-		DefaultPaymentTerms: in.DefaultPaymentTerms,
-		BankName: in.BankName, BankAccount: in.BankAccount, AccountName: in.AccountName,
+	syncPhoneFields(in)
+	if err := s.resolveCategoryName(in); err != nil {
+		return nil, err
 	}
+	item := supplierFromDTO(in)
 	if err := r.Create(item); err != nil {
 		if isDuplicateKey(err) {
 			return nil, ErrDuplicateCode
 		}
 		return nil, err
 	}
+	normalizeSupplierPhones(item)
 	return item, nil
 }
 
@@ -74,24 +84,18 @@ func (s *SupplierService) Update(id uint64, in *dto.SupplierDTO) (*model.Supplie
 			return nil, err
 		}
 	}
-	item.Code = in.Code
-	item.Name = in.Name
-	item.ShortName = in.ShortName
-	item.Status = defaultStatus(in.Status)
-	item.ContactName = in.ContactName
-	item.Phone = in.Phone
-	item.Email = in.Email
-	item.Remark = in.Remark
-	item.DefaultPaymentTerms = in.DefaultPaymentTerms
-	item.BankName = in.BankName
-	item.BankAccount = in.BankAccount
-	item.AccountName = in.AccountName
+	syncPhoneFields(in)
+	if err := s.resolveCategoryName(in); err != nil {
+		return nil, err
+	}
+	applySupplierDTO(item, in)
 	if err := r.Save(item); err != nil {
 		if isDuplicateKey(err) {
 			return nil, ErrDuplicateCode
 		}
 		return nil, err
 	}
+	normalizeSupplierPhones(item)
 	return item, nil
 }
 
@@ -101,6 +105,67 @@ func (s *SupplierService) Delete(id uint64) error {
 		return ErrNotFound
 	} else if err != nil {
 		return err
+	}
+	return r.Delete(id)
+}
+
+func (s *SupplierService) ListCategories() ([]model.SupplierCategory, error) {
+	return s.repos.SupplierCategory.ForTenant(s.tenantID).List()
+}
+
+func (s *SupplierService) GetCategory(id uint64) (*model.SupplierCategory, error) {
+	item, err := s.repos.SupplierCategory.ForTenant(s.tenantID).GetByID(id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	return item, err
+}
+
+func (s *SupplierService) CreateCategory(in *dto.SupplierCategoryDTO) (*model.SupplierCategory, error) {
+	r := s.repos.SupplierCategory.ForTenant(s.tenantID)
+	item := &model.SupplierCategory{
+		Name: in.Name, ParentID: in.ParentID, Sort: in.Sort,
+		Status: defaultStatus(in.Status), Remark: in.Remark,
+	}
+	if err := r.Create(item); err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+func (s *SupplierService) UpdateCategory(id uint64, in *dto.SupplierCategoryDTO) (*model.SupplierCategory, error) {
+	r := s.repos.SupplierCategory.ForTenant(s.tenantID)
+	item, err := r.GetByID(id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	item.Name = in.Name
+	item.ParentID = in.ParentID
+	item.Sort = in.Sort
+	item.Status = defaultStatus(in.Status)
+	item.Remark = in.Remark
+	if err := r.Save(item); err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+func (s *SupplierService) DeleteCategory(id uint64) error {
+	r := s.repos.SupplierCategory.ForTenant(s.tenantID)
+	if _, err := r.GetByID(id); errors.Is(err, gorm.ErrRecordNotFound) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	count, err := r.CountSuppliers(id)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return ErrBadRequest
 	}
 	return r.Delete(id)
 }
@@ -167,6 +232,91 @@ func (s *SupplierService) DeleteAddress(supplierID, addressID uint64) error {
 		return err
 	}
 	return r.DeleteAddress(supplierID, addressID)
+}
+
+func (s *SupplierService) resolveCategoryName(in *dto.SupplierDTO) error {
+	if in.CategoryID == 0 {
+		in.CategoryName = ""
+		return nil
+	}
+	if in.CategoryName != "" {
+		return nil
+	}
+	cat, err := s.repos.SupplierCategory.ForTenant(s.tenantID).GetByID(in.CategoryID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	in.CategoryName = cat.Name
+	return nil
+}
+
+func supplierFromDTO(in *dto.SupplierDTO) *model.Supplier {
+	item := &model.Supplier{
+		CategoryID: in.CategoryID, CategoryName: in.CategoryName,
+		Code: in.Code, Name: in.Name, ShortName: in.ShortName,
+		Status: defaultStatus(in.Status), BuyerName: in.BuyerName,
+		CutOffTime: defaultCutOffTime(in.CutOffTime),
+		ArrivalDays: in.ArrivalDays, PaymentDays: in.PaymentDays,
+		ContactName: in.ContactName, Address: in.Address,
+		OfficePhone: in.OfficePhone, Mobile: in.Mobile, Phone: in.Phone,
+		WangwangID: in.WangwangID, QQ: in.QQ, Email: in.Email,
+		Website: in.Website, Remark: in.Remark,
+		DefaultPaymentTerms: in.DefaultPaymentTerms,
+		BankName: in.BankName, BankAccount: in.BankAccount, AccountName: in.AccountName,
+	}
+	return item
+}
+
+func applySupplierDTO(item *model.Supplier, in *dto.SupplierDTO) {
+	item.CategoryID = in.CategoryID
+	item.CategoryName = in.CategoryName
+	item.Code = in.Code
+	item.Name = in.Name
+	item.ShortName = in.ShortName
+	item.Status = defaultStatus(in.Status)
+	item.BuyerName = in.BuyerName
+	item.CutOffTime = defaultCutOffTime(in.CutOffTime)
+	item.ArrivalDays = in.ArrivalDays
+	item.PaymentDays = in.PaymentDays
+	item.ContactName = in.ContactName
+	item.Address = in.Address
+	item.OfficePhone = in.OfficePhone
+	item.Mobile = in.Mobile
+	item.Phone = in.Phone
+	item.WangwangID = in.WangwangID
+	item.QQ = in.QQ
+	item.Email = in.Email
+	item.Website = in.Website
+	item.Remark = in.Remark
+	item.DefaultPaymentTerms = in.DefaultPaymentTerms
+	item.BankName = in.BankName
+	item.BankAccount = in.BankAccount
+	item.AccountName = in.AccountName
+}
+
+func syncPhoneFields(in *dto.SupplierDTO) {
+	if in.Mobile == "" && in.Phone != "" {
+		in.Mobile = in.Phone
+	}
+	if in.Phone == "" && in.Mobile != "" {
+		in.Phone = in.Mobile
+	}
+}
+
+func normalizeSupplierPhones(item *model.Supplier) {
+	if item.Mobile == "" && item.Phone != "" {
+		item.Mobile = item.Phone
+	}
+}
+
+func defaultCutOffTime(v string) string {
+	if v == "" {
+		return "00:01"
+	}
+	return v
 }
 
 func defaultStatus(v int8) int8 {

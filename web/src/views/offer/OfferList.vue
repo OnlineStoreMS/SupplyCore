@@ -31,7 +31,7 @@ const editing = ref<Partial<SkuOffer>>({
 
 async function loadSuppliers() {
   try {
-    const data = await fetchSuppliers(undefined, 1, 200)
+    const data = await fetchSuppliers({ page: 1, pageSize: 200 })
     suppliers.value = data.list
   } catch {
     suppliers.value = []

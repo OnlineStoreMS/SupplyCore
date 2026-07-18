@@ -19,11 +19,14 @@ func (r *SupplierRepo) ForTenant(tenantID uint64) *SupplierRepo {
 	return &SupplierRepo{db: r.db, tenantID: NormalizeTenantID(tenantID)}
 }
 
-func (r *SupplierRepo) List(keyword string, page, pageSize int) ([]model.Supplier, int64, error) {
+func (r *SupplierRepo) List(keyword string, categoryID uint64, page, pageSize int) ([]model.Supplier, int64, error) {
 	q := r.db.Model(&model.Supplier{}).Scopes(scopeTenant(r.tenantID))
 	if keyword != "" {
 		like := "%" + keyword + "%"
 		q = q.Where("name ILIKE ? OR code ILIKE ? OR short_name ILIKE ?", like, like, like)
+	}
+	if categoryID > 0 {
+		q = q.Where("category_id = ?", categoryID)
 	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {

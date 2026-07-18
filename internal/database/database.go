@@ -39,6 +39,7 @@ func Connect(cfg *config.DatabaseConfig) (*gorm.DB, error) {
 
 func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(
+		&model.SupplierCategory{},
 		&model.Supplier{},
 		&model.SupplierAddress{},
 		&model.SkuSupplierOffer{},
@@ -65,6 +66,8 @@ func ensureIndexes(db *gorm.DB) error {
 	case "postgres":
 		return db.Exec(`
 			CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_tenant_code ON suppliers (tenant_id, code);
+			CREATE INDEX IF NOT EXISTS idx_suppliers_tenant_category ON suppliers (tenant_id, category_id);
+			CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_categories_tenant_name ON supplier_categories (tenant_id, name);
 			CREATE UNIQUE INDEX IF NOT EXISTS idx_offers_tenant_sku_supplier_addr ON sku_supplier_offers (tenant_id, sku_id, supplier_id, ship_from_address_id);
 			CREATE UNIQUE INDEX IF NOT EXISTS idx_po_tenant_no ON purchase_orders (tenant_id, po_no);
 			CREATE UNIQUE INDEX IF NOT EXISTS idx_shipment_tenant_no ON purchase_shipments (tenant_id, shipment_no);
