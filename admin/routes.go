@@ -2,7 +2,7 @@ package admin
 
 import "github.com/gin-gonic/gin"
 
-func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *OfferHandler, poH *PurchaseOrderHandler, trackH *POTrackingHandler, soH *SalesOrderHandler, skuH *ProductSkuHandler) {
+func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *OfferHandler, poH *PurchaseOrderHandler, trackH *POTrackingHandler, soH *SalesOrderHandler, skuH *ProductSkuHandler, extH *PurchaseExtHandler) {
 	g.GET("/suppliers", supplierH.List)
 	g.POST("/suppliers", supplierH.Create)
 	g.GET("/suppliers/:id", supplierH.Get)
@@ -60,4 +60,30 @@ func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *Offe
 	g.POST("/sales-orders/:id/create-purchase-orders", soH.CreatePurchaseOrders)
 
 	g.POST("/sourcing/dropship-purchase-order", soH.DropshipPurchaseOrder)
+
+	// M5 · 采购扩展（对齐普源：账号 / 入库 / 收包 / 退回 / 建议）
+	g.GET("/purchase-accounts", extH.ListAccounts)
+	g.POST("/purchase-accounts", extH.CreateAccount)
+	g.PUT("/purchase-accounts/:id", extH.UpdateAccount)
+	g.DELETE("/purchase-accounts/:id", extH.DeleteAccount)
+
+	g.GET("/purchase-inbounds", extH.ListInbounds)
+	g.POST("/purchase-inbounds", extH.CreateInbound)
+	g.GET("/purchase-inbounds/:id", extH.GetInbound)
+	g.POST("/purchase-inbounds/:id/approve-wh", extH.ApproveInboundWH)
+	g.POST("/purchase-inbounds/:id/approve-finance", extH.ApproveInboundFinance)
+	g.POST("/purchase-inbounds/:id/void", extH.VoidInbound)
+
+	g.GET("/package-receives", extH.ListPackageReceives)
+	g.POST("/package-receives/scan", extH.ScanPackage)
+	g.POST("/package-receives/:id/create-inbound", extH.CreateInboundFromPackage)
+
+	g.GET("/purchase-returns", extH.ListReturns)
+	g.POST("/purchase-returns", extH.CreateReturn)
+	g.GET("/purchase-returns/:id", extH.GetReturn)
+	g.POST("/purchase-returns/:id/approve", extH.ApproveReturn)
+	g.POST("/purchase-returns/:id/approve-finance", extH.ApproveReturnFinance)
+	g.POST("/purchase-returns/:id/void", extH.VoidReturn)
+
+	g.GET("/purchase-suggestions", extH.ListSuggestions)
 }

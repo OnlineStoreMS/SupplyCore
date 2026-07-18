@@ -50,6 +50,12 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.PurchaseAttachment{},
 		&model.SalesOrder{},
 		&model.SalesOrderItem{},
+		&model.PurchaseAccount{},
+		&model.PurchaseInbound{},
+		&model.PurchaseInboundItem{},
+		&model.PackageReceiveRecord{},
+		&model.PurchaseReturn{},
+		&model.PurchaseReturnItem{},
 	); err != nil {
 		return err
 	}
@@ -67,6 +73,9 @@ func ensureIndexes(db *gorm.DB) error {
 			CREATE UNIQUE INDEX IF NOT EXISTS idx_so_tenant_no ON sales_orders (tenant_id, so_no);
 			CREATE INDEX IF NOT EXISTS idx_po_ref_so ON purchase_orders (tenant_id, ref_so_id);
 			CREATE INDEX IF NOT EXISTS idx_po_ref_trace ON purchase_orders (tenant_id, ref_trace_id);
+			CREATE UNIQUE INDEX IF NOT EXISTS idx_inbound_tenant_no ON purchase_inbounds (tenant_id, inbound_no);
+			CREATE UNIQUE INDEX IF NOT EXISTS idx_return_tenant_no ON purchase_returns (tenant_id, return_no);
+			CREATE INDEX IF NOT EXISTS idx_pkg_recv_tracking ON package_receive_records (tenant_id, tracking_no);
 		`).Error
 	default:
 		return nil

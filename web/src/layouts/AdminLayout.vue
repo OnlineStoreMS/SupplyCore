@@ -31,15 +31,24 @@ function logout() {
 
 const breadcrumbs = computed(() => {
   const title = (route.meta.title as string) || 'SupplyCore'
-  if (route.path.startsWith('/suppliers/') && route.params.id) {
-    return ['VMS', '供应商详情']
-  }
-  if (route.path.startsWith('/suppliers')) return ['VMS', '供应商']
-  if (route.path.startsWith('/sku-offers')) return ['VMS', 'SKU 供货报价']
-  if (route.path.startsWith('/purchase-orders/create')) return ['PMS', '新建采购单']
-  if (route.path.includes('/edit')) return ['PMS', '编辑采购单']
-  if (route.path.startsWith('/purchase-orders/')) return ['PMS', '采购单详情']
-  if (route.path.startsWith('/purchase-orders')) return ['PMS', '采购单']
+  if (route.path.startsWith('/suggestions')) return ['采购建议', title]
+  if (route.path.startsWith('/purchase-accounts')) return ['采购', '采购账号']
+  if (route.path.startsWith('/package-receives')) return ['收包入库', '收货记录']
+  if (route.path.startsWith('/scan-inbound')) return ['收包入库', '包裹扫描入库']
+  if (route.path.startsWith('/purchase-inbounds/create')) return ['采购入库', '新增入库单']
+  if (route.path.startsWith('/purchase-inbounds/')) return ['采购入库', '入库单详情']
+  if (route.path.startsWith('/purchase-inbounds')) return ['采购入库', '采购入库单']
+  if (route.path.startsWith('/inbound-sort')) return ['采购入库', '入库分拣']
+  if (route.path.startsWith('/purchase-returns/')) return ['采购退回', '退回单详情']
+  if (route.path.startsWith('/purchase-returns')) return ['采购退回', '采购退回单']
+  if (route.path.startsWith('/suppliers/') && route.params.id) return ['供应商', '供应商详情']
+  if (route.path.startsWith('/suppliers')) return ['供应商', '供应商信息']
+  if (route.path.startsWith('/sku-offers')) return ['供应商', 'SKU 供货报价']
+  if (route.path.startsWith('/purchase-orders/create')) return ['采购订单', '新建']
+  if (route.path.includes('/edit') && route.path.includes('purchase-orders')) return ['采购订单', '编辑']
+  if (route.path.startsWith('/purchase-orders/')) return ['采购订单', '详情']
+  if (route.path.startsWith('/purchase-orders')) return ['采购订单', '列表']
+  if (route.path.startsWith('/sales-orders')) return ['销售订单', title]
   return ['首页', title]
 })
 </script>

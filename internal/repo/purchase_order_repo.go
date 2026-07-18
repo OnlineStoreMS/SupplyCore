@@ -122,6 +122,10 @@ func (r *PurchaseOrderRepo) Save(po *model.PurchaseOrder) error {
 	return r.db.Save(po).Error
 }
 
+func (r *PurchaseOrderRepo) SaveItem(item *model.PurchaseOrderItem) error {
+	return r.db.Save(item).Error
+}
+
 func (r *PurchaseOrderRepo) Delete(id uint64) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Scopes(scopeTenant(r.tenantID)).
