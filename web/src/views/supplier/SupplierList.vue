@@ -220,25 +220,37 @@ async function handleDeleteCategory(row: SupplierCategory) {
           />
         </div>
 
-        <el-table :data="tableData" stripe border>
-          <el-table-column prop="name" label="名称" min-width="140" fixed="left">
+        <el-table :data="tableData" stripe border table-layout="auto">
+          <el-table-column prop="name" label="供应商名称" min-width="140">
             <template #default="{ row }">
               <el-link type="primary" @click="openDetail(row)">{{ row.name }}</el-link>
             </template>
           </el-table-column>
-          <el-table-column prop="code" label="编码" width="110" />
-          <el-table-column prop="categoryName" label="类别" width="100" />
-          <el-table-column prop="wangwangId" label="旺旺ID" width="110" show-overflow-tooltip />
-          <el-table-column prop="contactName" label="联系人" width="90" />
-          <el-table-column label="手机" width="120">
-            <template #default="{ row }">{{ supplierMobile(row) }}</template>
+          <el-table-column prop="code" label="编码" width="100" />
+          <el-table-column prop="categoryName" label="类别" width="90">
+            <template #default="{ row }">{{ row.categoryName || '—' }}</template>
           </el-table-column>
-          <el-table-column prop="address" label="地址" min-width="140" show-overflow-tooltip />
-          <el-table-column prop="website" label="网址" width="120" show-overflow-tooltip />
-          <el-table-column prop="buyerName" label="采购员" width="90" />
-          <el-table-column prop="cutOffTime" label="截单时间" width="90" align="center" />
-          <el-table-column prop="paymentDays" label="账期天数" width="90" align="center" />
-          <el-table-column prop="arrivalDays" label="到货天数" width="90" align="center" />
+          <el-table-column prop="wangwangId" label="旺旺ID" width="110" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.wangwangId || '—' }}</template>
+          </el-table-column>
+          <el-table-column prop="contactName" label="联系人" width="90">
+            <template #default="{ row }">{{ row.contactName || '—' }}</template>
+          </el-table-column>
+          <el-table-column label="手机" width="120">
+            <template #default="{ row }">{{ supplierMobile(row) || '—' }}</template>
+          </el-table-column>
+          <el-table-column prop="address" label="地址" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.address || '—' }}</template>
+          </el-table-column>
+          <el-table-column prop="buyerName" label="采购员" width="90">
+            <template #default="{ row }">{{ row.buyerName || '—' }}</template>
+          </el-table-column>
+          <el-table-column prop="cutOffTime" label="截单时间" width="90" align="center">
+            <template #default="{ row }">{{ row.cutOffTime || '—' }}</template>
+          </el-table-column>
+          <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.remark || '—' }}</template>
+          </el-table-column>
           <el-table-column label="状态" width="80" align="center">
             <template #default="{ row }">
               <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
@@ -246,7 +258,7 @@ async function handleDeleteCategory(row: SupplierCategory) {
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="160" fixed="right">
+          <el-table-column label="操作" width="140" fixed="right">
             <template #default="{ row }">
               <el-button type="primary" link @click="openDetail(row)">详情</el-button>
               <el-button type="primary" link :icon="Edit" @click="handleEdit(row)">编辑</el-button>
@@ -462,11 +474,15 @@ async function handleDeleteCategory(row: SupplierCategory) {
 .layout {
   display: flex;
   gap: 12px;
-  align-items: flex-start;
+  align-items: stretch;
+  min-height: calc(100vh - 140px);
 }
 .category-panel {
-  width: 200px;
+  width: 180px;
   flex-shrink: 0;
+}
+.category-panel :deep(.el-card__body) {
+  padding: 8px;
 }
 .category-panel :deep(.el-card__header) {
   display: flex;
@@ -484,6 +500,10 @@ async function handleDeleteCategory(row: SupplierCategory) {
   cursor: pointer;
   border-radius: 4px;
   font-size: 14px;
+  color: var(--el-text-color-regular);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .category-list li:hover {
   background: var(--el-fill-color-light);
@@ -496,6 +516,7 @@ async function handleDeleteCategory(row: SupplierCategory) {
 .main-panel {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 .main-panel :deep(.el-card__header) {
   display: flex;
