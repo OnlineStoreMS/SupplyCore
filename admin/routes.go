@@ -40,6 +40,8 @@ func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *Offe
 	g.GET("/skus/:id/supply-options", offerH.SupplyOptions)
 
 	g.GET("/product-skus/search", skuH.Search)
+	g.GET("/products/search", skuH.SearchProducts)
+	g.GET("/products/:id/skus", skuH.GetProductSkus)
 
 	g.GET("/warehouses", whH.List)
 	g.GET("/warehouses/:id/locations", whH.ListLocations)

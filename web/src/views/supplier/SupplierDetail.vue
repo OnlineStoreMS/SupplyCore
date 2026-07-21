@@ -32,13 +32,15 @@ const router = useRouter()
 const supplierId = computed(() => Number(route.params.id))
 
 const supplier = ref<Supplier | null>(null)
-const addresses = ref<SupplierAddress[]>([])
+const shipAddresses = ref<SupplierAddress[]>([])
+const returnAddresses = ref<SupplierAddress[]>([])
 const paymentAccounts = ref<SupplierPaymentAccount[]>([])
 const paymentQRs = ref<SupplierPaymentQR[]>([])
 const loading = ref(false)
 
 const addrDialogVisible = ref(false)
 const editingAddr = ref<Partial<SupplierAddress>>({})
+const editingAddrType = ref<'ship' | 'return'>('ship')
 
 const accountDialogVisible = ref(false)
 const editingAccount = ref<Partial<SupplierPaymentAccount>>({})
@@ -49,23 +51,42 @@ const qrUploading = ref(false)
 const qrPreviewVisible = ref(false)
 const qrPreviewUrl = ref('')
 
+const addrDialogTitle = computed(() => {
+  const isReturn = editingAddrType.value === 'return'
+  if (editingAddr.value.id) {
+    return isReturn ? '编辑退货地址' : '编辑发货地址'
+  }
+  return isReturn ? '添加退货地址' : '添加发货地址'
+})
+
 function openQRPreview(url: string) {
   if (!url) return
   qrPreviewUrl.value = url
   qrPreviewVisible.value = true
 }
 
+async function reloadAddresses() {
+  const [ship, ret] = await Promise.all([
+    fetchSupplierAddresses(supplierId.value, 'ship'),
+    fetchSupplierAddresses(supplierId.value, 'return'),
+  ])
+  shipAddresses.value = ship
+  returnAddresses.value = ret
+}
+
 async function loadData() {
   loading.value = true
   try {
-    const [s, addrs, accounts, qrs] = await Promise.all([
+    const [s, ship, ret, accounts, qrs] = await Promise.all([
       fetchSupplier(supplierId.value),
-      fetchSupplierAddresses(supplierId.value),
+      fetchSupplierAddresses(supplierId.value, 'ship'),
+      fetchSupplierAddresses(supplierId.value, 'return'),
       fetchSupplierPaymentAccounts(supplierId.value),
       fetchSupplierPaymentQRs(supplierId.value),
     ])
     supplier.value = s
-    addresses.value = addrs
+    shipAddresses.value = ship
+    returnAddresses.value = ret
     paymentAccounts.value = accounts
     paymentQRs.value = qrs
   } catch (e) {
@@ -77,26 +98,29 @@ async function loadData() {
 
 onMounted(loadData)
 
-function handleAddAddress() {
-  editingAddr.value = { label: '', status: 1, isDefault: false }
+function handleAddAddress(type: 'ship' | 'return') {
+  editingAddrType.value = type
+  editingAddr.value = { label: '', addressType: type, status: 1, isDefault: false }
   addrDialogVisible.value = true
 }
 
 function handleEditAddress(row: SupplierAddress) {
-  editingAddr.value = { ...row }
+  editingAddrType.value = row.addressType === 'return' ? 'return' : 'ship'
+  editingAddr.value = { ...row, addressType: editingAddrType.value }
   addrDialogVisible.value = true
 }
 
 async function handleSaveAddress() {
   try {
-    if (editingAddr.value.id) {
-      await updateSupplierAddress(supplierId.value, editingAddr.value.id, editingAddr.value)
+    const payload = { ...editingAddr.value, addressType: editingAddrType.value }
+    if (payload.id) {
+      await updateSupplierAddress(supplierId.value, payload.id, payload)
     } else {
-      await createSupplierAddress(supplierId.value, editingAddr.value)
+      await createSupplierAddress(supplierId.value, payload)
     }
     ElMessage.success('已保存')
     addrDialogVisible.value = false
-    addresses.value = await fetchSupplierAddresses(supplierId.value)
+    await reloadAddresses()
   } catch (e) {
     ElMessage.error((e as Error).message || '保存失败')
   }
@@ -106,7 +130,7 @@ async function handleDeleteAddress(row: SupplierAddress) {
   try {
     await deleteSupplierAddress(supplierId.value, row.id)
     ElMessage.success('已删除')
-    addresses.value = await fetchSupplierAddresses(supplierId.value)
+    await reloadAddresses()
   } catch (e) {
     ElMessage.error((e as Error).message || '删除失败')
   }
@@ -239,9 +263,42 @@ async function handleDeleteQR(row: SupplierPaymentQR) {
     <el-card class="section-card">
       <template #header>
         <span>发货地址</span>
-        <el-button type="primary" :icon="Plus" @click="handleAddAddress">添加地址</el-button>
+        <el-button type="primary" :icon="Plus" @click="handleAddAddress('ship')">添加地址</el-button>
       </template>
-      <el-table :data="addresses" stripe>
+      <el-table :data="shipAddresses" stripe>
+        <el-table-column prop="label" label="标签" width="120" />
+        <el-table-column label="地区" min-width="180">
+          <template #default="{ row }">
+            {{ [row.province, row.city, row.district].filter(Boolean).join(' ') }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="address" label="详细地址" min-width="200" />
+        <el-table-column prop="contactName" label="联系人" width="100" />
+        <el-table-column prop="phone" label="电话" width="120" />
+        <el-table-column label="默认" width="70" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.isDefault" type="success" size="small">默认</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="140">
+          <template #default="{ row }">
+            <el-button type="primary" link :icon="Edit" @click="handleEditAddress(row)">编辑</el-button>
+            <el-popconfirm title="确定删除？" @confirm="handleDeleteAddress(row)">
+              <template #reference>
+                <el-button type="danger" link :icon="Delete">删除</el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-card class="section-card">
+      <template #header>
+        <span>退货地址</span>
+        <el-button type="primary" :icon="Plus" @click="handleAddAddress('return')">添加地址</el-button>
+      </template>
+      <el-table :data="returnAddresses" stripe>
         <el-table-column prop="label" label="标签" width="120" />
         <el-table-column label="地区" min-width="180">
           <template #default="{ row }">
@@ -347,10 +404,13 @@ async function handleDeleteQR(row: SupplierPaymentQR) {
       </el-table>
     </el-card>
 
-    <el-dialog v-model="addrDialogVisible" :title="editingAddr.id ? '编辑地址' : '添加地址'" width="520px">
+    <el-dialog v-model="addrDialogVisible" :title="addrDialogTitle" width="520px">
       <el-form :model="editingAddr" label-width="90px">
         <el-form-item label="标签" required>
-          <el-input v-model="editingAddr.label" placeholder="如：深圳仓" />
+          <el-input
+            v-model="editingAddr.label"
+            :placeholder="editingAddrType === 'return' ? '如：退货仓' : '如：深圳仓'"
+          />
         </el-form-item>
         <el-form-item label="省">
           <el-input v-model="editingAddr.province" />
@@ -370,7 +430,7 @@ async function handleDeleteQR(row: SupplierPaymentQR) {
         <el-form-item label="电话">
           <el-input v-model="editingAddr.phone" />
         </el-form-item>
-        <el-form-item label="默认发货地">
+        <el-form-item :label="editingAddrType === 'return' ? '默认退货地' : '默认发货地'">
           <el-switch v-model="editingAddr.isDefault" />
         </el-form-item>
       </el-form>
@@ -457,7 +517,7 @@ async function handleDeleteQR(row: SupplierPaymentQR) {
     <el-dialog
       v-model="qrPreviewVisible"
       title="收款码预览"
-      width="360px"
+      width="520px"
       align-center
       append-to-body
       class="qr-preview-dialog"
@@ -506,11 +566,11 @@ async function handleDeleteQR(row: SupplierPaymentQR) {
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 8px 0;
+  padding: 12px 0;
 }
 .qr-preview-img {
-  max-width: 280px;
-  max-height: 280px;
+  max-width: 440px;
+  max-height: 440px;
   width: auto;
   height: auto;
   object-fit: contain;

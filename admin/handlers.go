@@ -158,7 +158,7 @@ func (h *SupplierHandler) ListAddresses(c *gin.Context) {
 		response.Fail(c, http.StatusBadRequest, "invalid supplier id")
 		return
 	}
-	list, err := h.ss(c).ListAddresses(supplierID)
+	list, err := h.ss(c).ListAddresses(supplierID, c.Query("type"))
 	if err != nil {
 		httputil.HandleServiceError(c, err)
 		return

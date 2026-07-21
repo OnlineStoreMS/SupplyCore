@@ -10,7 +10,7 @@ import {
 
 const model = defineModel<number | undefined>({ default: undefined })
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
     placeholder?: string
     disabled?: boolean

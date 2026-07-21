@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import type { TableColumnCtx } from 'element-plus'
 import { Plus, Edit, Delete, Search } from '@element-plus/icons-vue'
 import SkuSearchSelect from '../../components/SkuSearchSelect.vue'
+import ProductSkuPicker from '../../components/ProductSkuPicker.vue'
 import {
   createSkuOffer,
   deleteSkuOffer,
@@ -90,7 +91,7 @@ async function loadAddresses(supplierId?: number) {
     return
   }
   try {
-    addresses.value = await fetchSupplierAddresses(supplierId)
+    addresses.value = await fetchSupplierAddresses(supplierId, 'ship')
   } catch {
     addresses.value = []
   }
@@ -316,13 +317,16 @@ function addressLabel(addr: SupplierAddress) {
     <el-dialog
       v-model="dialogVisible"
       :title="editing.id ? '编辑报价' : '添加报价'"
-      width="620px"
+      width="680px"
       destroy-on-close
     >
       <el-form :model="editing" label-width="100px">
         <el-form-item label="商品 SKU" required>
-          <SkuSearchSelect v-model="editing.skuId" :disabled="!!editing.id" />
-          <div v-if="editing.id" class="hint">编辑时不可更换 SKU</div>
+          <ProductSkuPicker v-if="!editing.id" v-model="editing.skuId" />
+          <template v-else>
+            <SkuSearchSelect v-model="editing.skuId" disabled />
+            <div class="hint">编辑时不可更换 SKU</div>
+          </template>
         </el-form-item>
         <el-form-item label="供应商" required>
           <el-select

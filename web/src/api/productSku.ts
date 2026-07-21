@@ -17,6 +17,37 @@ export interface ProductSkuSearchItem {
   pic?: string
 }
 
+export interface ProductBrief {
+  id: number
+  name: string
+  materialCode?: string
+  productSn?: string
+  pic?: string
+  brandName?: string
+  categoryName?: string
+  price?: number
+  stock?: number
+  skuCount?: number
+}
+
+export interface ProductSkuItem {
+  id: number
+  skuCode: string
+  specs: Record<string, string>
+  price: number
+  stock: number
+  pic?: string
+}
+
+export interface ProductSkusPayload {
+  id: number
+  name: string
+  materialCode?: string
+  pic?: string
+  skuCount: number
+  skus: ProductSkuItem[]
+}
+
 export function formatSkuOptionLabel(item: ProductSkuSearchItem): string {
   const code = item.skuCode?.trim()
   const spec = item.specLabel?.trim() || '-'
@@ -27,6 +58,14 @@ export function formatSkuOptionLabel(item: ProductSkuSearchItem): string {
   if (name) parts.push(name)
   parts.push(`#${item.skuId}`)
   return parts.join(' · ')
+}
+
+export function formatSkuSpecLabel(specs?: Record<string, string>): string {
+  if (!specs) return ''
+  return Object.entries(specs)
+    .filter(([, v]) => String(v || '').trim())
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(' / ')
 }
 
 export function skuDisplayPic(item?: Pick<ProductSkuSearchItem, 'pic' | 'productPic'> | null): string {
@@ -46,6 +85,19 @@ export async function searchProductSkus(params: {
     skuResolveCache.set(item.skuId, item)
   }
   return page
+}
+
+export async function searchProducts(params?: {
+  keyword?: string
+  page?: number
+  pageSize?: number
+}) {
+  const res = await client.get('/products/search', { params })
+  return unwrap<PageData<ProductBrief>>(res)
+}
+
+export async function fetchProductSkus(productId: number) {
+  return unwrap<ProductSkusPayload>(await client.get(`/products/${productId}/skus`))
 }
 
 /** 批量解析 SKU 详情（图片、规格等），带内存缓存 */
@@ -71,4 +123,8 @@ export async function resolveProductSkus(ids: number[]): Promise<Map<number, Pro
     if (hit) result.set(id, hit)
   }
   return result
+}
+
+export function cacheSkuSearchItem(item: ProductSkuSearchItem) {
+  skuResolveCache.set(item.skuId, item)
 }

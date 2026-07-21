@@ -53,6 +53,7 @@ type SupplierAddress struct {
 	ID           uint64    `gorm:"primaryKey" json:"id"`
 	TenantID     uint64    `gorm:"index;not null" json:"tenantId"`
 	SupplierID   uint64    `gorm:"index;not null" json:"supplierId"`
+	AddressType  string    `gorm:"size:16;not null;default:ship;index" json:"addressType"` // ship / return
 	Label        string    `gorm:"size:64;not null" json:"label"`
 	ContactName  string    `gorm:"size:64" json:"contactName"`
 	Phone        string    `gorm:"size:32" json:"phone"`

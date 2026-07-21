@@ -69,12 +69,13 @@ func (r *SupplierRepo) Delete(id uint64) error {
 	return r.db.Scopes(scopeTenant(r.tenantID)).Delete(&model.Supplier{}, id).Error
 }
 
-func (r *SupplierRepo) ListAddresses(supplierID uint64) ([]model.SupplierAddress, error) {
+func (r *SupplierRepo) ListAddresses(supplierID uint64, addressType string) ([]model.SupplierAddress, error) {
 	var list []model.SupplierAddress
-	err := r.db.Scopes(scopeTenant(r.tenantID)).
-		Where("supplier_id = ?", supplierID).
-		Order("is_default DESC, id ASC").
-		Find(&list).Error
+	q := r.db.Scopes(scopeTenant(r.tenantID)).Where("supplier_id = ?", supplierID)
+	if addressType != "" {
+		q = q.Where("address_type = ?", addressType)
+	}
+	err := q.Order("is_default DESC, id ASC").Find(&list).Error
 	return list, err
 }
 
@@ -104,10 +105,13 @@ func (r *SupplierRepo) DeleteAddress(supplierID, addressID uint64) error {
 		Delete(&model.SupplierAddress{}).Error
 }
 
-func (r *SupplierRepo) ClearDefaultAddress(supplierID uint64, exceptID uint64) error {
+func (r *SupplierRepo) ClearDefaultAddress(supplierID uint64, addressType string, exceptID uint64) error {
 	q := r.db.Model(&model.SupplierAddress{}).
 		Scopes(scopeTenant(r.tenantID)).
 		Where("supplier_id = ?", supplierID)
+	if addressType != "" {
+		q = q.Where("address_type = ?", addressType)
+	}
 	if exceptID > 0 {
 		q = q.Where("id <> ?", exceptID)
 	}

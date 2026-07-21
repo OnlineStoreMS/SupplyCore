@@ -36,6 +36,7 @@ type SupplierDTO struct {
 }
 
 type SupplierAddressDTO struct {
+	AddressType string `json:"addressType"`
 	Label       string `json:"label" binding:"required"`
 	ContactName string `json:"contactName"`
 	Phone       string `json:"phone"`

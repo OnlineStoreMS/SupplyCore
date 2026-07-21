@@ -170,11 +170,18 @@ func (s *SupplierService) DeleteCategory(id uint64) error {
 	return r.Delete(id)
 }
 
-func (s *SupplierService) ListAddresses(supplierID uint64) ([]model.SupplierAddress, error) {
+func (s *SupplierService) ListAddresses(supplierID uint64, addressType string) ([]model.SupplierAddress, error) {
 	if _, err := s.Get(supplierID); err != nil {
 		return nil, err
 	}
-	return s.repos.Supplier.ForTenant(s.tenantID).ListAddresses(supplierID)
+	return s.repos.Supplier.ForTenant(s.tenantID).ListAddresses(supplierID, addressType)
+}
+
+func defaultAddressType(t string) string {
+	if t == model.AddressTypeReturn {
+		return model.AddressTypeReturn
+	}
+	return model.AddressTypeShip
 }
 
 func (s *SupplierService) CreateAddress(supplierID uint64, in *dto.SupplierAddressDTO) (*model.SupplierAddress, error) {
@@ -182,14 +189,15 @@ func (s *SupplierService) CreateAddress(supplierID uint64, in *dto.SupplierAddre
 		return nil, err
 	}
 	r := s.repos.Supplier.ForTenant(s.tenantID)
+	addrType := defaultAddressType(in.AddressType)
 	item := &model.SupplierAddress{
-		SupplierID: supplierID, Label: in.Label, ContactName: in.ContactName,
+		SupplierID: supplierID, AddressType: addrType, Label: in.Label, ContactName: in.ContactName,
 		Phone: in.Phone, Province: in.Province, City: in.City,
 		District: in.District, Address: in.Address, IsDefault: in.IsDefault,
 		Status: defaultStatus(in.Status),
 	}
 	if item.IsDefault {
-		_ = r.ClearDefaultAddress(supplierID, 0)
+		_ = r.ClearDefaultAddress(supplierID, addrType, 0)
 	}
 	if err := r.CreateAddress(item); err != nil {
 		return nil, err
@@ -206,6 +214,11 @@ func (s *SupplierService) UpdateAddress(supplierID, addressID uint64, in *dto.Su
 	if err != nil {
 		return nil, err
 	}
+	addrType := defaultAddressType(in.AddressType)
+	if addrType == "" {
+		addrType = defaultAddressType(item.AddressType)
+	}
+	item.AddressType = addrType
 	item.Label = in.Label
 	item.ContactName = in.ContactName
 	item.Phone = in.Phone
@@ -216,7 +229,7 @@ func (s *SupplierService) UpdateAddress(supplierID, addressID uint64, in *dto.Su
 	item.IsDefault = in.IsDefault
 	item.Status = defaultStatus(in.Status)
 	if item.IsDefault {
-		_ = r.ClearDefaultAddress(supplierID, addressID)
+		_ = r.ClearDefaultAddress(supplierID, addrType, addressID)
 	}
 	if err := r.SaveAddress(item); err != nil {
 		return nil, err

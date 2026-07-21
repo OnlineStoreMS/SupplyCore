@@ -41,6 +41,7 @@ export interface Supplier {
 export interface SupplierAddress {
   id: number
   supplierId: number
+  addressType?: string
   label: string
   contactName?: string
   phone?: string
@@ -157,8 +158,12 @@ export async function deleteSupplier(id: number) {
   return unwrap(await client.delete(`/suppliers/${id}`))
 }
 
-export async function fetchSupplierAddresses(supplierId: number) {
-  return unwrap<SupplierAddress[]>(await client.get(`/suppliers/${supplierId}/addresses`))
+export async function fetchSupplierAddresses(supplierId: number, addressType?: string) {
+  return unwrap<SupplierAddress[]>(
+    await client.get(`/suppliers/${supplierId}/addresses`, {
+      params: { type: addressType || undefined },
+    }),
+  )
 }
 
 export async function createSupplierAddress(supplierId: number, data: Partial<SupplierAddress>) {

@@ -60,6 +60,8 @@ func AutoMigrate(db *gorm.DB) error {
 	); err != nil {
 		return err
 	}
+	// 历史地址无类型时补为发货地址
+	_ = db.Exec(`UPDATE supplier_addresses SET address_type = 'ship' WHERE address_type IS NULL OR address_type = ''`).Error
 	return ensureIndexes(db)
 }
 

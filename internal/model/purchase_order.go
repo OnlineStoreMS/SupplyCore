@@ -17,6 +17,9 @@ const (
 	POFulfillmentStockIn   = "stock_in"
 	POFulfillmentDropship  = "dropship"
 
+	AddressTypeShip   = "ship"
+	AddressTypeReturn = "return"
+
 	ShipmentStatusPending   = "pending"
 	ShipmentStatusShipped   = "shipped"
 	ShipmentStatusInTransit = "in_transit"
