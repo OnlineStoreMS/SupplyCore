@@ -1,20 +1,34 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import type { TableColumnCtx } from 'element-plus'
 import { Plus, Edit, Delete, Search } from '@element-plus/icons-vue'
 import SkuSearchSelect from '../../components/SkuSearchSelect.vue'
 import {
   createSkuOffer,
   deleteSkuOffer,
   fetchSkuOffers,
+  fetchSupplierAddresses,
   fetchSuppliers,
   updateSkuOffer,
   type SkuOffer,
   type Supplier,
+  type SupplierAddress,
 } from '../../api/supplier'
+import {
+  resolveProductSkus,
+  skuDisplayPic,
+  type ProductSkuSearchItem,
+} from '../../api/productSku'
 
-const tableData = ref<SkuOffer[]>([])
+interface OfferRow extends SkuOffer {
+  skuInfo?: ProductSkuSearchItem
+  _skuSpan?: number
+}
+
+const tableData = ref<OfferRow[]>([])
 const suppliers = ref<Supplier[]>([])
+const addresses = ref<SupplierAddress[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
@@ -22,6 +36,7 @@ const filterSkuId = ref<number | undefined>()
 const filterSupplierId = ref<number | undefined>()
 const loading = ref(false)
 const dialogVisible = ref(false)
+const saving = ref(false)
 const editing = ref<Partial<SkuOffer>>({
   currency: 'CNY',
   minOrderQty: 1,
@@ -29,12 +44,55 @@ const editing = ref<Partial<SkuOffer>>({
   status: 1,
 })
 
+const skuSpanMap = computed(() => {
+  const map = new Map<number, { first: number; count: number }>()
+  tableData.value.forEach((row, index) => {
+    const existing = map.get(row.skuId)
+    if (existing) {
+      existing.count += 1
+    } else {
+      map.set(row.skuId, { first: index, count: 1 })
+    }
+  })
+  return map
+})
+
+function spanMethod(args: {
+  row: OfferRow
+  column: TableColumnCtx<OfferRow>
+  rowIndex: number
+  columnIndex: number
+}) {
+  const prop = String(args.column.property || '')
+  if (prop !== 'skuProduct' && prop !== 'skuSpec') {
+    return { rowspan: 1, colspan: 1 }
+  }
+  const info = skuSpanMap.value.get(args.row.skuId)
+  if (!info) return { rowspan: 1, colspan: 1 }
+  if (args.rowIndex === info.first) {
+    return { rowspan: info.count, colspan: 1 }
+  }
+  return { rowspan: 0, colspan: 0 }
+}
+
 async function loadSuppliers() {
   try {
     const data = await fetchSuppliers({ page: 1, pageSize: 200 })
     suppliers.value = data.list
   } catch {
     suppliers.value = []
+  }
+}
+
+async function loadAddresses(supplierId?: number) {
+  if (!supplierId) {
+    addresses.value = []
+    return
+  }
+  try {
+    addresses.value = await fetchSupplierAddresses(supplierId)
+  } catch {
+    addresses.value = []
   }
 }
 
@@ -47,7 +105,11 @@ async function loadData() {
       page: page.value,
       pageSize: pageSize.value,
     })
-    tableData.value = data.list
+    const skuMap = await resolveProductSkus(data.list.map((item) => item.skuId))
+    tableData.value = data.list.map((item) => ({
+      ...item,
+      skuInfo: skuMap.get(item.skuId),
+    }))
     total.value = data.total
   } catch (e) {
     ElMessage.error((e as Error).message || '加载失败')
@@ -66,9 +128,9 @@ watch(filterSkuId, () => {
   void loadData()
 })
 
-function handleAdd() {
+async function handleAdd(skuId?: number) {
   editing.value = {
-    skuId: filterSkuId.value,
+    skuId: skuId || filterSkuId.value,
     supplierId: filterSupplierId.value,
     supplyPrice: 0,
     currency: 'CNY',
@@ -78,21 +140,37 @@ function handleAdd() {
     isPrimary: false,
     priority: 0,
     status: 1,
+    shipFromAddressId: undefined,
   }
+  await loadAddresses(editing.value.supplierId)
   dialogVisible.value = true
 }
 
-function handleEdit(row: SkuOffer) {
-  editing.value = { ...row }
+async function handleEdit(row: SkuOffer) {
+  editing.value = {
+    ...row,
+    shipFromAddressId: row.shipFromAddressId || undefined,
+  }
+  await loadAddresses(row.supplierId)
   dialogVisible.value = true
+}
+
+async function onSupplierChange(supplierId: number) {
+  editing.value.shipFromAddressId = undefined
+  await loadAddresses(supplierId)
 }
 
 async function handleSave() {
+  if (!editing.value.skuId || !editing.value.supplierId) {
+    ElMessage.warning('请选择商品 SKU 与供应商')
+    return
+  }
+  if (editing.value.supplyPrice == null || editing.value.supplyPrice < 0) {
+    ElMessage.warning('请填写拿货价')
+    return
+  }
+  saving.value = true
   try {
-    if (!editing.value.skuId || !editing.value.supplierId) {
-      ElMessage.warning('请填写 SKU ID 与供应商')
-      return
-    }
     if (editing.value.id) {
       await updateSkuOffer(editing.value.id, editing.value)
     } else {
@@ -103,6 +181,8 @@ async function handleSave() {
     await loadData()
   } catch (e) {
     ElMessage.error((e as Error).message || '保存失败')
+  } finally {
+    saving.value = false
   }
 }
 
@@ -118,7 +198,13 @@ async function handleDelete(row: SkuOffer) {
 
 function onPageChange(p: number) {
   page.value = p
-  loadData()
+  void loadData()
+}
+
+function addressLabel(addr: SupplierAddress) {
+  const region = [addr.province, addr.city, addr.district].filter(Boolean).join('')
+  const bits = [addr.label, region, addr.address].filter(Boolean)
+  return bits.join(' · ') || `地址 #${addr.id}`
 }
 </script>
 
@@ -127,12 +213,17 @@ function onPageChange(p: number) {
     <el-card v-loading="loading">
       <template #header>
         <span>SKU 供货报价</span>
-        <el-button type="primary" :icon="Plus" @click="handleAdd">添加报价</el-button>
+        <el-button type="primary" :icon="Plus" @click="handleAdd()">添加报价</el-button>
       </template>
 
       <div class="toolbar">
         <div class="toolbar-sku">
-          <SkuSearchSelect v-model="filterSkuId" placeholder="按 SKU 搜索筛选" clearable />
+          <SkuSearchSelect
+            v-model="filterSkuId"
+            placeholder="按商品 / SKU / 规格筛选"
+            :show-preview="false"
+            clearable
+          />
         </div>
         <el-select
           v-model="filterSupplierId"
@@ -147,14 +238,44 @@ function onPageChange(p: number) {
         <el-button :icon="Search" @click="loadData">查询</el-button>
       </div>
 
-      <el-table :data="tableData" stripe border>
-        <el-table-column prop="skuId" label="SKU ID" width="90" />
-        <el-table-column prop="supplierName" label="供应商" min-width="140" />
+      <el-table :data="tableData" stripe :span-method="spanMethod" class="offer-table">
+        <el-table-column prop="skuProduct" label="商品 SKU" min-width="240">
+          <template #default="{ row }">
+            <div class="sku-cell">
+              <el-image
+                :src="skuDisplayPic(row.skuInfo)"
+                fit="cover"
+                class="sku-pic"
+              >
+                <template #error>
+                  <div class="sku-pic placeholder">无图</div>
+                </template>
+              </el-image>
+              <div class="sku-text">
+                <div class="sku-name">{{ row.skuInfo?.productName || `SKU #${row.skuId}` }}</div>
+                <div class="sku-code">{{ row.skuInfo?.skuCode || `#${row.skuId}` }}</div>
+                <el-button type="primary" link size="small" @click="handleAdd(row.skuId)">
+                  + 加报价
+                </el-button>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="skuSpec" label="规格" min-width="140">
+          <template #default="{ row }">
+            <span class="spec-text">{{ row.skuInfo?.specLabel || '—' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="supplierName" label="供应商" min-width="130" />
         <el-table-column prop="supplierSkuCode" label="对方货号" width="120" />
         <el-table-column label="拿货价" width="100" align="right">
-          <template #default="{ row }">¥{{ row.supplyPrice.toFixed(2) }}</template>
+          <template #default="{ row }">¥{{ Number(row.supplyPrice || 0).toFixed(2) }}</template>
         </el-table-column>
-        <el-table-column prop="shipFromCity" label="发货地" width="100" />
+        <el-table-column label="发货地" width="110">
+          <template #default="{ row }">
+            {{ row.shipFromLabel || row.shipFromCity || '—' }}
+          </template>
+        </el-table-column>
         <el-table-column label="代发" width="70" align="center">
           <template #default="{ row }">
             <el-tag :type="row.supportsDropship ? 'success' : 'info'" size="small">
@@ -162,10 +283,11 @@ function onPageChange(p: number) {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="leadTimeDays" label="交期(天)" width="90" align="center" />
+        <el-table-column prop="leadTimeDays" label="交期" width="70" align="center" />
         <el-table-column label="主供" width="70" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.isPrimary" type="warning" size="small">主</el-tag>
+            <span v-else class="muted">—</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="140" fixed="right">
@@ -191,43 +313,102 @@ function onPageChange(p: number) {
       </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editing.id ? '编辑报价' : '添加报价'" width="560px">
-      <el-form :model="editing" label-width="110px">
+    <el-dialog
+      v-model="dialogVisible"
+      :title="editing.id ? '编辑报价' : '添加报价'"
+      width="620px"
+      destroy-on-close
+    >
+      <el-form :model="editing" label-width="100px">
         <el-form-item label="商品 SKU" required>
           <SkuSearchSelect v-model="editing.skuId" :disabled="!!editing.id" />
           <div v-if="editing.id" class="hint">编辑时不可更换 SKU</div>
         </el-form-item>
         <el-form-item label="供应商" required>
-          <el-select v-model="editing.supplierId" filterable style="width: 100%">
-            <el-option v-for="s in suppliers" :key="s.id" :label="`${s.name} (${s.code})`" :value="s.id" />
+          <el-select
+            v-model="editing.supplierId"
+            filterable
+            style="width: 100%"
+            @change="onSupplierChange"
+          >
+            <el-option
+              v-for="s in suppliers"
+              :key="s.id"
+              :label="`${s.name} (${s.code})`"
+              :value="s.id"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="对方货号">
-          <el-input v-model="editing.supplierSkuCode" />
+          <el-input v-model="editing.supplierSkuCode" placeholder="供应商侧货号（可选）" />
         </el-form-item>
         <el-form-item label="拿货价" required>
-          <el-input-number v-model="editing.supplyPrice" :min="0" :precision="2" controls-position="right" style="width: 100%" />
+          <el-input-number
+            v-model="editing.supplyPrice"
+            :min="0"
+            :precision="2"
+            controls-position="right"
+            style="width: 100%"
+          />
         </el-form-item>
-        <el-form-item label="发货地址 ID">
-          <el-input-number v-model="editing.shipFromAddressId" :min="0" controls-position="right" style="width: 100%" />
-          <div class="hint">在供应商详情页维护地址后填写对应 ID</div>
+        <el-form-item label="发货地址">
+          <el-select
+            v-model="editing.shipFromAddressId"
+            clearable
+            filterable
+            placeholder="选择供应商发货地址"
+            style="width: 100%"
+            :disabled="!editing.supplierId"
+          >
+            <el-option
+              v-for="addr in addresses"
+              :key="addr.id"
+              :label="addressLabel(addr)"
+              :value="addr.id"
+            />
+          </el-select>
+          <div class="hint">先选供应商；地址在供应商详情中维护</div>
         </el-form-item>
-        <el-form-item label="起订量">
-          <el-input-number v-model="editing.minOrderQty" :min="1" controls-position="right" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="交期(天)">
-          <el-input-number v-model="editing.leadTimeDays" :min="0" controls-position="right" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="支持代发">
-          <el-switch v-model="editing.supportsDropship" />
-        </el-form-item>
-        <el-form-item label="供货到仓">
-          <el-switch v-model="editing.supportsSelfStock" />
-        </el-form-item>
-        <el-form-item label="主供应商">
-          <el-switch v-model="editing.isPrimary" />
-        </el-form-item>
-        <el-form-item label="排序优先级">
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="起订量">
+              <el-input-number
+                v-model="editing.minOrderQty"
+                :min="1"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="交期(天)">
+              <el-input-number
+                v-model="editing.leadTimeDays"
+                :min="0"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="8">
+            <el-form-item label="支持代发">
+              <el-switch v-model="editing.supportsDropship" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="供货到仓">
+              <el-switch v-model="editing.supportsSelfStock" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="主供应商">
+              <el-switch v-model="editing.isPrimary" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="优先级">
           <el-input-number v-model="editing.priority" controls-position="right" style="width: 100%" />
         </el-form-item>
         <el-form-item label="备注">
@@ -236,7 +417,7 @@ function onPageChange(p: number) {
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSave">保存</el-button>
+        <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -253,9 +434,55 @@ function onPageChange(p: number) {
   gap: 8px;
   margin-bottom: 12px;
   align-items: flex-start;
+  flex-wrap: wrap;
 }
 .toolbar-sku {
-  width: 320px;
+  width: 360px;
+  max-width: 100%;
+}
+.offer-table :deep(.el-table__cell) {
+  vertical-align: top;
+}
+.sku-cell {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.sku-pic {
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  background: #f5f7fa;
+}
+.sku-pic.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #c0c4cc;
+}
+.sku-text {
+  min-width: 0;
+}
+.sku-name {
+  font-weight: 500;
+  font-size: 13px;
+  line-height: 1.4;
+  margin-bottom: 2px;
+}
+.sku-code {
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 2px;
+}
+.spec-text {
+  color: #409eff;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.muted {
+  color: #c0c4cc;
 }
 .pager {
   margin-top: 16px;

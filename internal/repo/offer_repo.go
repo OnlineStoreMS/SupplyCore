@@ -41,7 +41,7 @@ func (r *OfferRepo) List(f OfferListFilter) ([]model.SkuSupplierOffer, int64, er
 	}
 	var list []model.SkuSupplierOffer
 	offset := (f.Page - 1) * f.PageSize
-	err := q.Order("priority DESC, supply_price ASC, id DESC").
+	err := q.Order("sku_id ASC, is_primary DESC, priority DESC, supply_price ASC, id ASC").
 		Offset(offset).Limit(f.PageSize).Find(&list).Error
 	return list, total, err
 }

@@ -1,31 +1,41 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   formatSkuOptionLabel,
   searchProductSkus,
+  skuDisplayPic,
   type ProductSkuSearchItem,
 } from '../api/productSku'
 
 const model = defineModel<number | undefined>({ default: undefined })
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     placeholder?: string
     disabled?: boolean
     clearable?: boolean
+    showPreview?: boolean
   }>(),
   {
-    placeholder: '输入 SKU 编码、规格值或商品名搜索',
+    placeholder: '输入编码 / 规格 / 商品名搜索',
     disabled: false,
     clearable: true,
+    showPreview: true,
   },
 )
 
+const emit = defineEmits<{
+  select: [item: ProductSkuSearchItem | undefined]
+}>()
+
 const loading = ref(false)
 const options = ref<ProductSkuSearchItem[]>([])
-const selectedLabel = ref('')
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
+
+const selected = computed(() =>
+  model.value ? options.value.find((item) => item.skuId === model.value) : undefined,
+)
 
 function mergeOptions(items: ProductSkuSearchItem[]) {
   const map = new Map<number, ProductSkuSearchItem>()
@@ -40,9 +50,7 @@ function mergeOptions(items: ProductSkuSearchItem[]) {
 
 async function remoteSearch(keyword: string) {
   const q = keyword.trim()
-  if (!q) {
-    return
-  }
+  if (!q) return
   loading.value = true
   try {
     const data = await searchProductSkus({ keyword: q, page: 1, pageSize: 20 })
@@ -58,31 +66,31 @@ function onSearch(keyword: string) {
   clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
     void remoteSearch(keyword)
-  }, 300)
+  }, 280)
 }
 
 async function loadSelected(id?: number) {
   if (!id) {
-    selectedLabel.value = ''
+    emit('select', undefined)
     return
   }
   const existing = options.value.find((item) => item.skuId === id)
   if (existing) {
-    selectedLabel.value = formatSkuOptionLabel(existing)
+    emit('select', existing)
     return
   }
   loading.value = true
   try {
-    const data = await searchProductSkus({ keyword: String(id), page: 1, pageSize: 5 })
+    const data = await searchProductSkus({ keyword: String(id), page: 1, pageSize: 10 })
     const hit = data.list.find((item) => item.skuId === id) || data.list[0]
-    if (hit) {
+    if (hit && hit.skuId === id) {
       mergeOptions([hit])
-      selectedLabel.value = formatSkuOptionLabel(hit)
+      emit('select', hit)
     } else {
-      selectedLabel.value = `#${id}`
+      emit('select', undefined)
     }
   } catch {
-    selectedLabel.value = `#${id}`
+    emit('select', undefined)
   } finally {
     loading.value = false
   }
@@ -90,13 +98,11 @@ async function loadSelected(id?: number) {
 
 function onChange(value: number | undefined) {
   if (!value) {
-    selectedLabel.value = ''
+    emit('select', undefined)
     return
   }
   const hit = options.value.find((item) => item.skuId === value)
-  if (hit) {
-    selectedLabel.value = formatSkuOptionLabel(hit)
-  }
+  emit('select', hit)
 }
 
 onMounted(() => {
@@ -112,59 +118,156 @@ watch(
 </script>
 
 <template>
-  <el-select
-    v-model="model"
-    filterable
-    remote
-    reserve-keyword
-    :remote-method="onSearch"
-    :loading="loading"
-    :placeholder="placeholder"
-    :disabled="disabled"
-    :clearable="clearable"
-    style="width: 100%"
-    @change="onChange"
-  >
-    <el-option
-      v-for="item in options"
-      :key="item.skuId"
-      :label="formatSkuOptionLabel(item)"
-      :value="item.skuId"
+  <div class="sku-search">
+    <el-select
+      v-model="model"
+      filterable
+      remote
+      reserve-keyword
+      :remote-method="onSearch"
+      :loading="loading"
+      :placeholder="placeholder"
+      :disabled="disabled"
+      :clearable="clearable"
+      popper-class="sku-search-dropdown"
+      style="width: 100%"
+      @change="onChange"
     >
-      <div class="sku-option">
-        <span class="sku-option-main">{{ item.skuCode || `#${item.skuId}` }}</span>
-        <span class="sku-option-spec">{{ item.specLabel || '-' }}</span>
-        <span class="sku-option-sub">{{ item.productName }}</span>
+      <el-option
+        v-for="item in options"
+        :key="item.skuId"
+        :label="formatSkuOptionLabel(item)"
+        :value="item.skuId"
+      >
+        <div class="sku-option">
+          <el-image
+            :src="skuDisplayPic(item)"
+            fit="cover"
+            class="sku-option-pic"
+          >
+            <template #error>
+              <div class="sku-option-pic placeholder">无图</div>
+            </template>
+          </el-image>
+          <div class="sku-option-text">
+            <div class="sku-option-main">
+              <span class="code">{{ item.skuCode || `#${item.skuId}` }}</span>
+              <span class="spec">{{ item.specLabel || '无规格' }}</span>
+            </div>
+            <div class="sku-option-sub">{{ item.productName }}</div>
+          </div>
+        </div>
+      </el-option>
+    </el-select>
+
+    <div v-if="showPreview && selected" class="sku-preview">
+      <el-image :src="skuDisplayPic(selected)" fit="cover" class="sku-preview-pic">
+        <template #error>
+          <div class="sku-preview-pic placeholder">无图</div>
+        </template>
+      </el-image>
+      <div class="sku-preview-text">
+        <div class="name">{{ selected.productName }}</div>
+        <div class="meta">
+          <span>{{ selected.skuCode || `#${selected.skuId}` }}</span>
+          <span v-if="selected.specLabel">{{ selected.specLabel }}</span>
+        </div>
       </div>
-    </el-option>
-  </el-select>
-  <div v-if="model && selectedLabel" class="selected-preview">
-    已选：{{ selectedLabel }}
+    </div>
   </div>
 </template>
 
 <style scoped>
+.sku-search {
+  width: 100%;
+}
 .sku-option {
   display: flex;
-  flex-direction: column;
-  line-height: 1.35;
-  padding: 2px 0;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  min-height: 52px;
+}
+.sku-option-pic {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  background: #f5f7fa;
+}
+.sku-option-pic.placeholder,
+.sku-preview-pic.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #c0c4cc;
+}
+.sku-option-text {
+  min-width: 0;
+  flex: 1;
 }
 .sku-option-main {
-  font-weight: 500;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.sku-option-main .code {
+  font-weight: 600;
   color: var(--el-text-color-primary);
 }
-.sku-option-spec {
+.sku-option-main .spec {
   font-size: 12px;
-  color: var(--el-text-color-regular);
+  color: #409eff;
 }
 .sku-option-sub {
   font-size: 12px;
   color: var(--el-text-color-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.selected-preview {
-  margin-top: 6px;
+.sku-preview {
+  margin-top: 10px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  background: #f5f7fa;
+  border-radius: 8px;
+}
+.sku-preview-pic {
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  background: #fff;
+}
+.sku-preview-text {
+  min-width: 0;
+}
+.sku-preview-text .name {
+  font-weight: 500;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.sku-preview-text .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: #606266;
+}
+</style>
+
+<style>
+.sku-search-dropdown.el-select-dropdown {
+  min-width: 420px !important;
+}
+.sku-search-dropdown .el-select-dropdown__item {
+  height: auto;
+  padding: 6px 12px;
+  line-height: 1.35;
 }
 </style>
