@@ -46,6 +46,14 @@ const editingAccount = ref<Partial<SupplierPaymentAccount>>({})
 const qrDialogVisible = ref(false)
 const editingQR = ref<Partial<SupplierPaymentQR>>({})
 const qrUploading = ref(false)
+const qrPreviewVisible = ref(false)
+const qrPreviewUrl = ref('')
+
+function openQRPreview(url: string) {
+  if (!url) return
+  qrPreviewUrl.value = url
+  qrPreviewVisible.value = true
+}
 
 async function loadData() {
   loading.value = true
@@ -233,7 +241,7 @@ async function handleDeleteQR(row: SupplierPaymentQR) {
         <span>发货地址</span>
         <el-button type="primary" :icon="Plus" @click="handleAddAddress">添加地址</el-button>
       </template>
-      <el-table :data="addresses" stripe border>
+      <el-table :data="addresses" stripe>
         <el-table-column prop="label" label="标签" width="120" />
         <el-table-column label="地区" min-width="180">
           <template #default="{ row }">
@@ -266,7 +274,7 @@ async function handleDeleteQR(row: SupplierPaymentQR) {
         <span>收款账户</span>
         <el-button type="primary" :icon="Plus" @click="handleAddAccount">添加账户</el-button>
       </template>
-      <el-table :data="paymentAccounts" stripe border>
+      <el-table :data="paymentAccounts" stripe>
         <el-table-column prop="label" label="标签" width="120" />
         <el-table-column label="类型" width="100">
           <template #default="{ row }">
@@ -300,7 +308,7 @@ async function handleDeleteQR(row: SupplierPaymentQR) {
         <span>收款码</span>
         <el-button type="primary" :icon="Plus" @click="handleAddQR">添加收款码</el-button>
       </template>
-      <el-table :data="paymentQRs" stripe border>
+      <el-table :data="paymentQRs" stripe>
         <el-table-column prop="label" label="标签" width="120" />
         <el-table-column label="类型" width="100">
           <template #default="{ row }">
@@ -312,9 +320,9 @@ async function handleDeleteQR(row: SupplierPaymentQR) {
             <el-image
               v-if="row.imageUrl"
               :src="row.imageUrl"
-              :preview-src-list="[row.imageUrl]"
               fit="cover"
               class="qr-thumb"
+              @click="openQRPreview(row.imageUrl)"
             />
             <span v-else>—</span>
           </template>
@@ -422,9 +430,9 @@ async function handleDeleteQR(row: SupplierPaymentQR) {
             <el-image
               v-if="editingQR.imageUrl"
               :src="editingQR.imageUrl"
-              :preview-src-list="[editingQR.imageUrl]"
               fit="contain"
               class="qr-preview"
+              @click="openQRPreview(editingQR.imageUrl)"
             />
             <el-upload :auto-upload="false" :show-file-list="false" accept="image/*" :on-change="onQRFileChange">
               <el-button :icon="Upload" :loading="qrUploading">
@@ -445,6 +453,19 @@ async function handleDeleteQR(row: SupplierPaymentQR) {
         <el-button type="primary" @click="handleSaveQR">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="qrPreviewVisible"
+      title="收款码预览"
+      width="360px"
+      align-center
+      append-to-body
+      class="qr-preview-dialog"
+    >
+      <div class="qr-preview-body">
+        <img v-if="qrPreviewUrl" :src="qrPreviewUrl" alt="收款码" class="qr-preview-img" />
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -460,10 +481,14 @@ async function handleDeleteQR(row: SupplierPaymentQR) {
   align-items: center;
   justify-content: space-between;
 }
+.section-card :deep(.el-card__body) {
+  padding-top: 8px;
+}
 .qr-thumb {
   width: 48px;
   height: 48px;
   border-radius: 4px;
+  cursor: pointer;
 }
 .qr-upload {
   display: flex;
@@ -474,7 +499,21 @@ async function handleDeleteQR(row: SupplierPaymentQR) {
 .qr-preview {
   width: 160px;
   height: 160px;
-  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.qr-preview-body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px 0;
+}
+.qr-preview-img {
+  max-width: 280px;
+  max-height: 280px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
   border-radius: 4px;
 }
 </style>
