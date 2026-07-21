@@ -77,22 +77,28 @@ function toSearchItem(
   }
 }
 
-function mergeProductOptions(items: ProductBrief[]) {
-  const map = new Map<number, ProductBrief>()
-  for (const item of productOptions.value) map.set(item.id, item)
-  for (const item of items) map.set(item.id, item)
-  productOptions.value = Array.from(map.values())
+function keepSelectedInOptions(list: ProductBrief[]) {
+  const selected = selectedProduct.value
+  if (!selected) return list
+  if (list.some((p) => p.id === selected.id)) return list
+  return [selected, ...list]
 }
 
 async function remoteSearchProducts(keyword: string) {
+  const q = keyword.trim()
+  if (!q) {
+    // 未输入关键字时不拉全量，只保留已选商品
+    productOptions.value = selectedProduct.value ? [selectedProduct.value] : []
+    return
+  }
   productLoading.value = true
   try {
     const data = await searchProducts({
-      keyword: keyword.trim() || undefined,
+      keyword: q,
       page: 1,
       pageSize: 20,
     })
-    mergeProductOptions(data.list)
+    productOptions.value = keepSelectedInOptions(data.list)
   } catch (e) {
     ElMessage.error((e as Error).message || '商品搜索失败')
   } finally {
@@ -118,15 +124,18 @@ async function loadSkus(productId?: number) {
     const data = await fetchProductSkus(productId)
     productDetail.value = data
     skus.value = data.skus || []
-    mergeProductOptions([
-      {
-        id: data.id,
-        name: data.name,
-        materialCode: data.materialCode,
-        pic: data.pic,
-        skuCount: data.skuCount,
-      },
-    ])
+    const brief: ProductBrief = {
+      id: data.id,
+      name: data.name,
+      materialCode: data.materialCode,
+      pic: data.pic,
+      skuCount: data.skuCount,
+    }
+    if (!productOptions.value.some((p) => p.id === brief.id)) {
+      productOptions.value = [brief, ...productOptions.value]
+    } else {
+      productOptions.value = productOptions.value.map((p) => (p.id === brief.id ? { ...p, ...brief } : p))
+    }
   } catch (e) {
     ElMessage.error((e as Error).message || '加载 SKU 失败')
     skus.value = []
@@ -186,7 +195,7 @@ async function hydrateFromSkuId(skuId?: number) {
     }
     cacheSkuSearchItem(hit)
     selectedProductId.value = hit.productId
-    mergeProductOptions([
+    productOptions.value = [
       {
         id: hit.productId,
         name: hit.productName,
@@ -194,7 +203,7 @@ async function hydrateFromSkuId(skuId?: number) {
         productSn: hit.productSn,
         pic: hit.productPic,
       },
-    ])
+    ]
     await loadSkus(hit.productId)
     if (model.value !== skuId) {
       model.value = skuId
@@ -208,7 +217,6 @@ async function hydrateFromSkuId(skuId?: number) {
 }
 
 onMounted(() => {
-  void remoteSearchProducts('')
   void hydrateFromSkuId(model.value)
 })
 
@@ -234,7 +242,8 @@ watch(
         :remote-method="onProductSearch"
         :loading="productLoading"
         :disabled="disabled"
-        placeholder="搜索商品名称 / 货号 / 资料编码"
+        placeholder="输入关键字搜索商品"
+        no-data-text="请输入商品名称 / 货号搜索"
         popper-class="product-sku-picker-dropdown"
         style="width: 100%"
         @update:model-value="onProductChange"

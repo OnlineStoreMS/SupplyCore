@@ -4,6 +4,7 @@ export interface PurchaseOrderItem {
   id?: number
   skuId: number
   offerId?: number
+  productName?: string
   supplierSkuCode?: string
   qty: number
   unitPrice: number

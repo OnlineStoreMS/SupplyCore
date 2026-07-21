@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"supplycore/internal/dto"
@@ -72,7 +73,8 @@ func (s *PurchaseOrderService) Create(in *dto.PurchaseOrderInput, buyerID uint64
 	} else if err != nil {
 		return nil, err
 	}
-	items, total, err := s.buildItems(in.SupplierID, in.Items)
+	ft := defaultFulfillment(in.FulfillmentType)
+	items, total, err := s.buildItems(in.SupplierID, ft, in.Items)
 	if err != nil {
 		return nil, err
 	}
@@ -84,8 +86,8 @@ func (s *PurchaseOrderService) Create(in *dto.PurchaseOrderInput, buyerID uint64
 		PoNo: poNo, SupplierID: in.SupplierID,
 		Status: model.POStatusDraft, TotalAmount: total,
 		Currency: defaultCurrency(in.Currency),
-		FulfillmentType: defaultFulfillment(in.FulfillmentType),
-	RefSoID: in.RefSoID, RefTraceID: in.RefTraceID,
+		FulfillmentType: ft,
+		RefSoID: in.RefSoID, RefTraceID: in.RefTraceID,
 		BuyerID: buyerID, BuyerName: buyerName,
 		PayStatus: model.POPayStatusUnpaid, Remark: in.Remark,
 	}
@@ -115,14 +117,15 @@ func (s *PurchaseOrderService) Update(id uint64, in *dto.PurchaseOrderInput) (*d
 	} else if err != nil {
 		return nil, err
 	}
-	items, total, err := s.buildItems(in.SupplierID, in.Items)
+	ft := defaultFulfillment(in.FulfillmentType)
+	items, total, err := s.buildItems(in.SupplierID, ft, in.Items)
 	if err != nil {
 		return nil, err
 	}
 	po.SupplierID = in.SupplierID
 	po.TotalAmount = total
 	po.Currency = defaultCurrency(in.Currency)
-	po.FulfillmentType = defaultFulfillment(in.FulfillmentType)
+	po.FulfillmentType = ft
 	po.WarehouseID = in.WarehouseID
 	po.RefSoID = in.RefSoID
 	po.RefTraceID = in.RefTraceID
@@ -231,16 +234,21 @@ func (s *PurchaseOrderService) transition(id uint64, from, to string, apply func
 	return s.Get(id)
 }
 
-func (s *PurchaseOrderService) buildItems(supplierID uint64, inputs []dto.PurchaseOrderItemInput) ([]model.PurchaseOrderItem, float64, error) {
+func (s *PurchaseOrderService) buildItems(supplierID uint64, fulfillmentType string, inputs []dto.PurchaseOrderItemInput) ([]model.PurchaseOrderItem, float64, error) {
 	or := s.repos.Offer.ForTenant(s.tenantID)
+	dropship := fulfillmentType == model.POFulfillmentDropship
 	items := make([]model.PurchaseOrderItem, 0, len(inputs))
 	var total float64
 	for _, in := range inputs {
 		if in.Qty <= 0 {
 			return nil, 0, ErrBadRequest
 		}
+		if !dropship && in.SkuID == 0 && in.OfferID == 0 {
+			return nil, 0, errors.New("请选择 SKU 或供货报价")
+		}
 		item := model.PurchaseOrderItem{
 			SkuID: in.SkuID, OfferID: in.OfferID,
+			ProductName:     strings.TrimSpace(in.ProductName),
 			SupplierSkuCode: in.SupplierSkuCode,
 			Qty: in.Qty, Remark: in.Remark,
 		}
@@ -269,7 +277,8 @@ func (s *PurchaseOrderService) buildItems(supplierID uint64, inputs []dto.Purcha
 				item.UnitPrice = in.UnitPrice
 			}
 		} else {
-			if in.UnitPrice <= 0 {
+			// 代发草稿允许单价为 0（OMS 推送后在 SupplyCore 补价）
+			if in.UnitPrice < 0 || (!dropship && in.UnitPrice <= 0) {
 				return nil, 0, errors.New("请填写单价或选择供货报价")
 			}
 			item.UnitPrice = in.UnitPrice
@@ -307,7 +316,7 @@ func (s *PurchaseOrderService) toDetail(po *model.PurchaseOrder) *dto.PurchaseOr
 	for _, it := range po.Items {
 		detail.Items = append(detail.Items, dto.PurchaseOrderItemDetail{
 			ID: it.ID, SkuID: it.SkuID, OfferID: it.OfferID,
-			SupplierSkuCode: it.SupplierSkuCode, Qty: it.Qty,
+			ProductName: it.ProductName, SupplierSkuCode: it.SupplierSkuCode, Qty: it.Qty,
 			UnitPrice: it.UnitPrice, LineAmount: it.LineAmount,
 			ReceivedQty: it.ReceivedQty, Remark: it.Remark,
 		})

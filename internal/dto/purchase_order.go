@@ -1,8 +1,9 @@
 package dto
 
 type PurchaseOrderItemInput struct {
-	SkuID           uint64  `json:"skuId" binding:"required"`
+	SkuID           uint64  `json:"skuId"`
 	OfferID         uint64  `json:"offerId"`
+	ProductName     string  `json:"productName"`
 	SupplierSkuCode string  `json:"supplierSkuCode"`
 	Qty             int     `json:"qty" binding:"required,min=1"`
 	UnitPrice       float64 `json:"unitPrice"`
@@ -25,6 +26,7 @@ type PurchaseOrderItemDetail struct {
 	ID              uint64  `json:"id"`
 	SkuID           uint64  `json:"skuId"`
 	OfferID         uint64  `json:"offerId"`
+	ProductName     string  `json:"productName"`
 	SupplierSkuCode string  `json:"supplierSkuCode"`
 	Qty             int     `json:"qty"`
 	UnitPrice       float64 `json:"unitPrice"`

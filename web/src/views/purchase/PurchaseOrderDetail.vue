@@ -141,7 +141,14 @@ async function handleDelete() {
 
           <h4 class="section-title">采购明细</h4>
           <el-table :data="po.items" border stripe>
-            <el-table-column prop="skuId" label="SKU ID" width="90" />
+            <el-table-column prop="productName" label="商品" min-width="200" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row.productName || (row.skuId ? `SKU ${row.skuId}` : '—') }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="skuId" label="SKU ID" width="90">
+              <template #default="{ row }">{{ row.skuId || '—' }}</template>
+            </el-table-column>
             <el-table-column prop="supplierSkuCode" label="对方货号" width="120" />
             <el-table-column prop="qty" label="数量" width="80" align="center" />
             <el-table-column label="单价" width="100" align="right">

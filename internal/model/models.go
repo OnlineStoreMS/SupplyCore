@@ -159,8 +159,9 @@ type PurchaseOrderItem struct {
 	ID                  uint64     `gorm:"primaryKey" json:"id"`
 	TenantID            uint64     `gorm:"index;not null" json:"tenantId"`
 	POID                uint64     `gorm:"index;not null" json:"poId"`
-	SkuID               uint64     `gorm:"index;not null" json:"skuId"`
+	SkuID               uint64     `gorm:"index;not null;default:0" json:"skuId"`
 	OfferID             uint64     `json:"offerId"`
+	ProductName         string     `gorm:"size:512" json:"productName"`
 	SupplierSkuCode     string     `gorm:"size:64" json:"supplierSkuCode"`
 	Qty                 int        `gorm:"not null" json:"qty"`
 	UnitPrice           float64    `gorm:"type:decimal(12,2);not null" json:"unitPrice"`
