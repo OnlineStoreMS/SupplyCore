@@ -234,6 +234,154 @@ func (s *SupplierService) DeleteAddress(supplierID, addressID uint64) error {
 	return r.DeleteAddress(supplierID, addressID)
 }
 
+func defaultAccountType(t string) string {
+	if t == "" {
+		return "bank"
+	}
+	return t
+}
+
+func defaultPayType(t string) string {
+	if t == "" {
+		return "wechat"
+	}
+	return t
+}
+
+func (s *SupplierService) ListPaymentAccounts(supplierID uint64) ([]model.SupplierPaymentAccount, error) {
+	if _, err := s.Get(supplierID); err != nil {
+		return nil, err
+	}
+	return s.repos.Supplier.ForTenant(s.tenantID).ListPaymentAccounts(supplierID)
+}
+
+func (s *SupplierService) CreatePaymentAccount(supplierID uint64, in *dto.SupplierPaymentAccountDTO) (*model.SupplierPaymentAccount, error) {
+	if _, err := s.Get(supplierID); err != nil {
+		return nil, err
+	}
+	r := s.repos.Supplier.ForTenant(s.tenantID)
+	item := &model.SupplierPaymentAccount{
+		SupplierID:  supplierID,
+		Label:       in.Label,
+		AccountType: defaultAccountType(in.AccountType),
+		BankName:    in.BankName,
+		BankAccount: in.BankAccount,
+		AccountName: in.AccountName,
+		IsDefault:   in.IsDefault,
+		Status:      defaultStatus(in.Status),
+		Remark:      in.Remark,
+	}
+	if item.IsDefault {
+		_ = r.ClearDefaultPaymentAccount(supplierID, 0)
+	}
+	if err := r.CreatePaymentAccount(item); err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+func (s *SupplierService) UpdatePaymentAccount(supplierID, accountID uint64, in *dto.SupplierPaymentAccountDTO) (*model.SupplierPaymentAccount, error) {
+	r := s.repos.Supplier.ForTenant(s.tenantID)
+	item, err := r.GetPaymentAccount(supplierID, accountID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	item.Label = in.Label
+	item.AccountType = defaultAccountType(in.AccountType)
+	item.BankName = in.BankName
+	item.BankAccount = in.BankAccount
+	item.AccountName = in.AccountName
+	item.IsDefault = in.IsDefault
+	item.Status = defaultStatus(in.Status)
+	item.Remark = in.Remark
+	if item.IsDefault {
+		_ = r.ClearDefaultPaymentAccount(supplierID, accountID)
+	}
+	if err := r.SavePaymentAccount(item); err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+func (s *SupplierService) DeletePaymentAccount(supplierID, accountID uint64) error {
+	r := s.repos.Supplier.ForTenant(s.tenantID)
+	if _, err := r.GetPaymentAccount(supplierID, accountID); errors.Is(err, gorm.ErrRecordNotFound) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	return r.DeletePaymentAccount(supplierID, accountID)
+}
+
+func (s *SupplierService) ListPaymentQRs(supplierID uint64) ([]model.SupplierPaymentQR, error) {
+	if _, err := s.Get(supplierID); err != nil {
+		return nil, err
+	}
+	return s.repos.Supplier.ForTenant(s.tenantID).ListPaymentQRs(supplierID)
+}
+
+func (s *SupplierService) CreatePaymentQR(supplierID uint64, in *dto.SupplierPaymentQRDTO) (*model.SupplierPaymentQR, error) {
+	if _, err := s.Get(supplierID); err != nil {
+		return nil, err
+	}
+	r := s.repos.Supplier.ForTenant(s.tenantID)
+	item := &model.SupplierPaymentQR{
+		SupplierID:  supplierID,
+		Label:       in.Label,
+		PayType:     defaultPayType(in.PayType),
+		ImageURL:    in.ImageURL,
+		AccountName: in.AccountName,
+		IsDefault:   in.IsDefault,
+		Status:      defaultStatus(in.Status),
+		Remark:      in.Remark,
+	}
+	if item.IsDefault {
+		_ = r.ClearDefaultPaymentQR(supplierID, 0)
+	}
+	if err := r.CreatePaymentQR(item); err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+func (s *SupplierService) UpdatePaymentQR(supplierID, qrID uint64, in *dto.SupplierPaymentQRDTO) (*model.SupplierPaymentQR, error) {
+	r := s.repos.Supplier.ForTenant(s.tenantID)
+	item, err := r.GetPaymentQR(supplierID, qrID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	item.Label = in.Label
+	item.PayType = defaultPayType(in.PayType)
+	item.ImageURL = in.ImageURL
+	item.AccountName = in.AccountName
+	item.IsDefault = in.IsDefault
+	item.Status = defaultStatus(in.Status)
+	item.Remark = in.Remark
+	if item.IsDefault {
+		_ = r.ClearDefaultPaymentQR(supplierID, qrID)
+	}
+	if err := r.SavePaymentQR(item); err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+func (s *SupplierService) DeletePaymentQR(supplierID, qrID uint64) error {
+	r := s.repos.Supplier.ForTenant(s.tenantID)
+	if _, err := r.GetPaymentQR(supplierID, qrID); errors.Is(err, gorm.ErrRecordNotFound) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	return r.DeletePaymentQR(supplierID, qrID)
+}
+
 func (s *SupplierService) resolveCategoryName(in *dto.SupplierDTO) error {
 	if in.CategoryID == 0 {
 		in.CategoryName = ""

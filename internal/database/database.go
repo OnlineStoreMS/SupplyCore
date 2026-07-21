@@ -42,6 +42,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.SupplierCategory{},
 		&model.Supplier{},
 		&model.SupplierAddress{},
+		&model.SupplierPaymentAccount{},
+		&model.SupplierPaymentQR{},
 		&model.SkuSupplierOffer{},
 		&model.PurchaseOrder{},
 		&model.PurchaseOrderItem{},

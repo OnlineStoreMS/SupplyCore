@@ -19,6 +19,16 @@ func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *Offe
 	g.PUT("/suppliers/:id/addresses/:addressId", supplierH.UpdateAddress)
 	g.DELETE("/suppliers/:id/addresses/:addressId", supplierH.DeleteAddress)
 
+	g.GET("/suppliers/:id/payment-accounts", supplierH.ListPaymentAccounts)
+	g.POST("/suppliers/:id/payment-accounts", supplierH.CreatePaymentAccount)
+	g.PUT("/suppliers/:id/payment-accounts/:accountId", supplierH.UpdatePaymentAccount)
+	g.DELETE("/suppliers/:id/payment-accounts/:accountId", supplierH.DeletePaymentAccount)
+
+	g.GET("/suppliers/:id/payment-qrs", supplierH.ListPaymentQRs)
+	g.POST("/suppliers/:id/payment-qrs", supplierH.CreatePaymentQR)
+	g.PUT("/suppliers/:id/payment-qrs/:qrId", supplierH.UpdatePaymentQR)
+	g.DELETE("/suppliers/:id/payment-qrs/:qrId", supplierH.DeletePaymentQR)
+
 	g.GET("/sku-offers", offerH.List)
 	g.POST("/sku-offers", offerH.Create)
 	g.GET("/sku-offers/:id", offerH.Get)

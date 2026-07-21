@@ -47,6 +47,27 @@ type SupplierAddressDTO struct {
 	Status      int8   `json:"status"`
 }
 
+type SupplierPaymentAccountDTO struct {
+	Label       string `json:"label" binding:"required"`
+	AccountType string `json:"accountType"`
+	BankName    string `json:"bankName"`
+	BankAccount string `json:"bankAccount"`
+	AccountName string `json:"accountName"`
+	IsDefault   bool   `json:"isDefault"`
+	Status      int8   `json:"status"`
+	Remark      string `json:"remark"`
+}
+
+type SupplierPaymentQRDTO struct {
+	Label       string `json:"label" binding:"required"`
+	PayType     string `json:"payType"`
+	ImageURL    string `json:"imageUrl" binding:"required"`
+	AccountName string `json:"accountName"`
+	IsDefault   bool   `json:"isDefault"`
+	Status      int8   `json:"status"`
+	Remark      string `json:"remark"`
+}
+
 type SkuOfferDTO struct {
 	SkuID             uint64  `json:"skuId" binding:"required"`
 	SupplierID        uint64  `json:"supplierId" binding:"required"`

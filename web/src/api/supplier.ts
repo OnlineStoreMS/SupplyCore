@@ -52,6 +52,44 @@ export interface SupplierAddress {
   status: number
 }
 
+export interface SupplierPaymentAccount {
+  id: number
+  supplierId: number
+  label: string
+  accountType: string
+  bankName?: string
+  bankAccount?: string
+  accountName?: string
+  isDefault: boolean
+  status: number
+  remark?: string
+}
+
+export interface SupplierPaymentQR {
+  id: number
+  supplierId: number
+  label: string
+  payType: string
+  imageUrl: string
+  accountName?: string
+  isDefault: boolean
+  status: number
+  remark?: string
+}
+
+export const ACCOUNT_TYPE_MAP: Record<string, string> = {
+  bank: '银行账户',
+  alipay: '支付宝',
+  wechat: '微信',
+  other: '其他',
+}
+
+export const PAY_TYPE_MAP: Record<string, string> = {
+  wechat: '微信',
+  alipay: '支付宝',
+  other: '其他',
+}
+
 export interface SkuOffer {
   id: number
   skuId: number
@@ -133,6 +171,38 @@ export async function updateSupplierAddress(supplierId: number, addressId: numbe
 
 export async function deleteSupplierAddress(supplierId: number, addressId: number) {
   return unwrap(await client.delete(`/suppliers/${supplierId}/addresses/${addressId}`))
+}
+
+export async function fetchSupplierPaymentAccounts(supplierId: number) {
+  return unwrap<SupplierPaymentAccount[]>(await client.get(`/suppliers/${supplierId}/payment-accounts`))
+}
+
+export async function createSupplierPaymentAccount(supplierId: number, data: Partial<SupplierPaymentAccount>) {
+  return unwrap<SupplierPaymentAccount>(await client.post(`/suppliers/${supplierId}/payment-accounts`, data))
+}
+
+export async function updateSupplierPaymentAccount(supplierId: number, accountId: number, data: Partial<SupplierPaymentAccount>) {
+  return unwrap<SupplierPaymentAccount>(await client.put(`/suppliers/${supplierId}/payment-accounts/${accountId}`, data))
+}
+
+export async function deleteSupplierPaymentAccount(supplierId: number, accountId: number) {
+  return unwrap(await client.delete(`/suppliers/${supplierId}/payment-accounts/${accountId}`))
+}
+
+export async function fetchSupplierPaymentQRs(supplierId: number) {
+  return unwrap<SupplierPaymentQR[]>(await client.get(`/suppliers/${supplierId}/payment-qrs`))
+}
+
+export async function createSupplierPaymentQR(supplierId: number, data: Partial<SupplierPaymentQR>) {
+  return unwrap<SupplierPaymentQR>(await client.post(`/suppliers/${supplierId}/payment-qrs`, data))
+}
+
+export async function updateSupplierPaymentQR(supplierId: number, qrId: number, data: Partial<SupplierPaymentQR>) {
+  return unwrap<SupplierPaymentQR>(await client.put(`/suppliers/${supplierId}/payment-qrs/${qrId}`, data))
+}
+
+export async function deleteSupplierPaymentQR(supplierId: number, qrId: number) {
+  return unwrap(await client.delete(`/suppliers/${supplierId}/payment-qrs/${qrId}`))
 }
 
 export async function fetchSkuOffers(params: { skuId?: number; supplierId?: number; page?: number; pageSize?: number }) {

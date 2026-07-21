@@ -227,6 +227,156 @@ func (h *SupplierHandler) DeleteAddress(c *gin.Context) {
 	response.OK(c, gin.H{"deleted": true})
 }
 
+func (h *SupplierHandler) ListPaymentAccounts(c *gin.Context) {
+	supplierID, err := httputil.ParseID(c)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "invalid supplier id")
+		return
+	}
+	list, err := h.ss(c).ListPaymentAccounts(supplierID)
+	if err != nil {
+		httputil.HandleServiceError(c, err)
+		return
+	}
+	response.OK(c, list)
+}
+
+func (h *SupplierHandler) CreatePaymentAccount(c *gin.Context) {
+	supplierID, err := httputil.ParseID(c)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "invalid supplier id")
+		return
+	}
+	var in dto.SupplierPaymentAccountDTO
+	if err := c.ShouldBindJSON(&in); err != nil {
+		response.Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := h.ss(c).CreatePaymentAccount(supplierID, &in)
+	if err != nil {
+		httputil.HandleServiceError(c, err)
+		return
+	}
+	response.Created(c, item)
+}
+
+func (h *SupplierHandler) UpdatePaymentAccount(c *gin.Context) {
+	supplierID, err := httputil.ParseID(c)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "invalid supplier id")
+		return
+	}
+	accountID, err := strconv.ParseUint(c.Param("accountId"), 10, 64)
+	if err != nil || accountID == 0 {
+		response.Fail(c, http.StatusBadRequest, "invalid account id")
+		return
+	}
+	var in dto.SupplierPaymentAccountDTO
+	if err := c.ShouldBindJSON(&in); err != nil {
+		response.Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := h.ss(c).UpdatePaymentAccount(supplierID, accountID, &in)
+	if err != nil {
+		httputil.HandleServiceError(c, err)
+		return
+	}
+	response.OK(c, item)
+}
+
+func (h *SupplierHandler) DeletePaymentAccount(c *gin.Context) {
+	supplierID, err := httputil.ParseID(c)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "invalid supplier id")
+		return
+	}
+	accountID, err := strconv.ParseUint(c.Param("accountId"), 10, 64)
+	if err != nil || accountID == 0 {
+		response.Fail(c, http.StatusBadRequest, "invalid account id")
+		return
+	}
+	if err := h.ss(c).DeletePaymentAccount(supplierID, accountID); err != nil {
+		httputil.HandleServiceError(c, err)
+		return
+	}
+	response.OK(c, gin.H{"deleted": true})
+}
+
+func (h *SupplierHandler) ListPaymentQRs(c *gin.Context) {
+	supplierID, err := httputil.ParseID(c)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "invalid supplier id")
+		return
+	}
+	list, err := h.ss(c).ListPaymentQRs(supplierID)
+	if err != nil {
+		httputil.HandleServiceError(c, err)
+		return
+	}
+	response.OK(c, list)
+}
+
+func (h *SupplierHandler) CreatePaymentQR(c *gin.Context) {
+	supplierID, err := httputil.ParseID(c)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "invalid supplier id")
+		return
+	}
+	var in dto.SupplierPaymentQRDTO
+	if err := c.ShouldBindJSON(&in); err != nil {
+		response.Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := h.ss(c).CreatePaymentQR(supplierID, &in)
+	if err != nil {
+		httputil.HandleServiceError(c, err)
+		return
+	}
+	response.Created(c, item)
+}
+
+func (h *SupplierHandler) UpdatePaymentQR(c *gin.Context) {
+	supplierID, err := httputil.ParseID(c)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "invalid supplier id")
+		return
+	}
+	qrID, err := strconv.ParseUint(c.Param("qrId"), 10, 64)
+	if err != nil || qrID == 0 {
+		response.Fail(c, http.StatusBadRequest, "invalid qr id")
+		return
+	}
+	var in dto.SupplierPaymentQRDTO
+	if err := c.ShouldBindJSON(&in); err != nil {
+		response.Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := h.ss(c).UpdatePaymentQR(supplierID, qrID, &in)
+	if err != nil {
+		httputil.HandleServiceError(c, err)
+		return
+	}
+	response.OK(c, item)
+}
+
+func (h *SupplierHandler) DeletePaymentQR(c *gin.Context) {
+	supplierID, err := httputil.ParseID(c)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "invalid supplier id")
+		return
+	}
+	qrID, err := strconv.ParseUint(c.Param("qrId"), 10, 64)
+	if err != nil || qrID == 0 {
+		response.Fail(c, http.StatusBadRequest, "invalid qr id")
+		return
+	}
+	if err := h.ss(c).DeletePaymentQR(supplierID, qrID); err != nil {
+		httputil.HandleServiceError(c, err)
+		return
+	}
+	response.OK(c, gin.H{"deleted": true})
+}
+
 type OfferHandler struct {
 	svc *service.OfferService
 }

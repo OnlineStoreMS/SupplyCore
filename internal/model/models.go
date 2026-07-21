@@ -68,6 +68,43 @@ type SupplierAddress struct {
 
 func (SupplierAddress) TableName() string { return "supplier_addresses" }
 
+// SupplierPaymentAccount 供应商收款账户（银行/支付宝/微信等）
+type SupplierPaymentAccount struct {
+	ID          uint64    `gorm:"primaryKey" json:"id"`
+	TenantID    uint64    `gorm:"index;not null" json:"tenantId"`
+	SupplierID  uint64    `gorm:"index;not null" json:"supplierId"`
+	Label       string    `gorm:"size:64;not null" json:"label"`
+	AccountType string    `gorm:"size:32;not null;default:bank" json:"accountType"` // bank / alipay / wechat / other
+	BankName    string    `gorm:"size:128" json:"bankName"`
+	BankAccount string    `gorm:"size:64" json:"bankAccount"`
+	AccountName string    `gorm:"size:128" json:"accountName"`
+	IsDefault   bool      `gorm:"not null;default:false" json:"isDefault"`
+	Status      int8      `gorm:"default:1;not null" json:"status"`
+	Remark      string    `gorm:"size:255" json:"remark"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+func (SupplierPaymentAccount) TableName() string { return "supplier_payment_accounts" }
+
+// SupplierPaymentQR 供应商收款码
+type SupplierPaymentQR struct {
+	ID          uint64    `gorm:"primaryKey" json:"id"`
+	TenantID    uint64    `gorm:"index;not null" json:"tenantId"`
+	SupplierID  uint64    `gorm:"index;not null" json:"supplierId"`
+	Label       string    `gorm:"size:64;not null" json:"label"`
+	PayType     string    `gorm:"size:32;not null;default:wechat" json:"payType"` // wechat / alipay / other
+	ImageURL    string    `gorm:"size:512;not null" json:"imageUrl"`
+	AccountName string    `gorm:"size:128" json:"accountName"`
+	IsDefault   bool      `gorm:"not null;default:false" json:"isDefault"`
+	Status      int8      `gorm:"default:1;not null" json:"status"`
+	Remark      string    `gorm:"size:255" json:"remark"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+func (SupplierPaymentQR) TableName() string { return "supplier_payment_qrs" }
+
 type SkuSupplierOffer struct {
 	ID                 uint64    `gorm:"primaryKey" json:"id"`
 	TenantID           uint64    `gorm:"index;not null" json:"tenantId"`
