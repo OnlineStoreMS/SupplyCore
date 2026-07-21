@@ -36,6 +36,7 @@ func (s *PurchaseOrderService) List(f repo.POListFilter) ([]dto.PurchaseOrderLis
 		item := dto.PurchaseOrderListItem{
 			ID: po.ID, PoNo: po.PoNo, SupplierID: po.SupplierID,
 			Status: po.Status, PayStatus: po.PayStatus,
+			FulfillmentType: po.FulfillmentType,
 			TotalAmount: po.TotalAmount, Currency: po.Currency,
 			RefSoID: po.RefSoID, RefTraceID: po.RefTraceID,
 			CreatedAt: formatTime(po.CreatedAt),

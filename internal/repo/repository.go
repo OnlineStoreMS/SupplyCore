@@ -14,20 +14,22 @@ type Repos struct {
 	PurchaseInbound  *PurchaseInboundRepo
 	PackageReceive   *PackageReceiveRepo
 	PurchaseReturn   *PurchaseReturnRepo
+	Dashboard        *DashboardRepo
 }
 
 func New(db *gorm.DB) *Repos {
 	return &Repos{
 		Supplier:         NewSupplierRepo(db),
 		SupplierCategory: NewSupplierCategoryRepo(db),
-		Offer:           NewOfferRepo(db),
-		PurchaseOrder:   NewPurchaseOrderRepo(db),
-		Shipment:        NewShipmentRepo(db),
-		Payment:         NewPaymentRepo(db),
-		Attachment:      NewAttachmentRepo(db),
-		PurchaseAccount: NewPurchaseAccountRepo(db),
-		PurchaseInbound: NewPurchaseInboundRepo(db),
-		PackageReceive:  NewPackageReceiveRepo(db),
-		PurchaseReturn:  NewPurchaseReturnRepo(db),
+		Offer:            NewOfferRepo(db),
+		PurchaseOrder:    NewPurchaseOrderRepo(db),
+		Shipment:         NewShipmentRepo(db),
+		Payment:          NewPaymentRepo(db),
+		Attachment:       NewAttachmentRepo(db),
+		PurchaseAccount:  NewPurchaseAccountRepo(db),
+		PurchaseInbound:  NewPurchaseInboundRepo(db),
+		PackageReceive:   NewPackageReceiveRepo(db),
+		PurchaseReturn:   NewPurchaseReturnRepo(db),
+		Dashboard:        NewDashboardRepo(db),
 	}
 }

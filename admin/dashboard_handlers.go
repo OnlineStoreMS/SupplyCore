@@ -1,0 +1,31 @@
+package admin
+
+import (
+	"supplycore/internal/pkg/authcontext"
+	"supplycore/internal/pkg/httputil"
+	"supplycore/internal/pkg/response"
+	"supplycore/internal/service"
+
+	"github.com/gin-gonic/gin"
+)
+
+type DashboardHandler struct {
+	svc *service.DashboardService
+}
+
+func NewDashboardHandler(svc *service.DashboardService) *DashboardHandler {
+	return &DashboardHandler{svc: svc}
+}
+
+func (h *DashboardHandler) ds(c *gin.Context) *service.DashboardService {
+	return h.svc.ForTenant(authcontext.TenantID(c))
+}
+
+func (h *DashboardHandler) Stats(c *gin.Context) {
+	stats, err := h.ds(c).Stats()
+	if err != nil {
+		httputil.HandleServiceError(c, err)
+		return
+	}
+	response.OK(c, stats)
+}

@@ -58,17 +58,18 @@ type PurchaseOrderDetail struct {
 }
 
 type PurchaseOrderListItem struct {
-	ID           uint64  `json:"id"`
-	PoNo         string  `json:"poNo"`
-	SupplierID   uint64  `json:"supplierId"`
-	SupplierName string  `json:"supplierName"`
-	Status       string  `json:"status"`
-	PayStatus    string  `json:"payStatus"`
-	TotalAmount  float64 `json:"totalAmount"`
-	Currency     string  `json:"currency"`
-	ItemCount    int     `json:"itemCount"`
-	RefSoID      uint64  `json:"refSoId,omitempty"`
-	RefTraceID   string  `json:"refTraceId,omitempty"`
-	OrderedAt    string  `json:"orderedAt,omitempty"`
-	CreatedAt    string  `json:"createdAt"`
+	ID              uint64  `json:"id"`
+	PoNo            string  `json:"poNo"`
+	SupplierID      uint64  `json:"supplierId"`
+	SupplierName    string  `json:"supplierName"`
+	Status          string  `json:"status"`
+	PayStatus       string  `json:"payStatus"`
+	FulfillmentType string  `json:"fulfillmentType"`
+	TotalAmount     float64 `json:"totalAmount"`
+	Currency        string  `json:"currency"`
+	ItemCount       int     `json:"itemCount"`
+	RefSoID         uint64  `json:"refSoId,omitempty"`
+	RefTraceID      string  `json:"refTraceId,omitempty"`
+	OrderedAt       string  `json:"orderedAt,omitempty"`
+	CreatedAt       string  `json:"createdAt"`
 }

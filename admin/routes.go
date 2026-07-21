@@ -2,7 +2,9 @@ package admin
 
 import "github.com/gin-gonic/gin"
 
-func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *OfferHandler, poH *PurchaseOrderHandler, trackH *POTrackingHandler, skuH *ProductSkuHandler, whH *WarehouseHandler, extH *PurchaseExtHandler) {
+func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *OfferHandler, poH *PurchaseOrderHandler, trackH *POTrackingHandler, skuH *ProductSkuHandler, whH *WarehouseHandler, extH *PurchaseExtHandler, dashH *DashboardHandler) {
+	g.GET("/dashboard/stats", dashH.Stats)
+
 	g.GET("/supplier-categories", supplierH.ListCategories)
 	g.POST("/supplier-categories", supplierH.CreateCategory)
 	g.PUT("/supplier-categories/:id", supplierH.UpdateCategory)

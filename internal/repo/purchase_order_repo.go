@@ -23,19 +23,23 @@ func (r *PurchaseOrderRepo) ForTenant(tenantID uint64) *PurchaseOrderRepo {
 }
 
 type POListFilter struct {
-	Status      string
-	SupplierID  uint64
-	RefSoID     uint64
-	RefTraceID  string
-	Keyword     string
-	Page        int
-	PageSize    int
+	Status          string
+	FulfillmentType string
+	SupplierID      uint64
+	RefSoID         uint64
+	RefTraceID      string
+	Keyword         string
+	Page            int
+	PageSize        int
 }
 
 func (r *PurchaseOrderRepo) List(f POListFilter) ([]model.PurchaseOrder, int64, error) {
 	q := r.db.Model(&model.PurchaseOrder{}).Scopes(scopeTenant(r.tenantID))
 	if f.Status != "" {
 		q = q.Where("status = ?", f.Status)
+	}
+	if f.FulfillmentType != "" {
+		q = q.Where("fulfillment_type = ?", f.FulfillmentType)
 	}
 	if f.SupplierID > 0 {
 		q = q.Where("supplier_id = ?", f.SupplierID)

@@ -10,8 +10,6 @@ const route = useRoute()
 const router = useRouter()
 const collapsed = defineModel<boolean>('collapsed', { default: false })
 
-const activeMenu = computed(() => route.path)
-
 const openMenus = computed(() => {
   const p = route.path
   if (p.startsWith('/suggestions')) return ['suggestions']
@@ -19,10 +17,21 @@ const openMenus = computed(() => {
   if (p.startsWith('/purchase-inbounds') || p.startsWith('/inbound-sort')) return ['inbound']
   if (p.startsWith('/purchase-returns')) return ['returns']
   if (p.startsWith('/suppliers') || p.startsWith('/sku-offers')) return ['supplier']
+  if (p.startsWith('/purchase-orders')) return ['supplier-orders']
   return []
 })
 
 const logoText = computed(() => (collapsed.value ? 'SC' : 'SupplyCore'))
+
+const activeMenu = computed(() => {
+  if (route.path.startsWith('/purchase-orders')) {
+    const ft = route.query.fulfillmentType
+    if (ft === 'dropship') return '/purchase-orders?fulfillmentType=dropship'
+    if (ft === 'stock_in') return '/purchase-orders?fulfillmentType=stock_in'
+    return '/purchase-orders'
+  }
+  return route.path
+})
 
 function navigate(path: string) {
   router.push(path)
@@ -33,6 +42,7 @@ function navigate(path: string) {
   <aside class="sidebar" :class="{ collapsed }">
     <div class="logo">{{ logoText }}</div>
     <el-menu
+      :key="activeMenu"
       :default-active="activeMenu"
       :default-openeds="openMenus"
       :collapse="collapsed"
@@ -60,10 +70,25 @@ function navigate(path: string) {
         <span>采购账号</span>
       </el-menu-item>
 
-      <el-menu-item index="/purchase-orders" @click="navigate('/purchase-orders')">
-        <el-icon><ShoppingCart /></el-icon>
-        <span>采购订单</span>
-      </el-menu-item>
+      <el-sub-menu index="supplier-orders">
+        <template #title>
+          <el-icon><ShoppingCart /></el-icon>
+          <span>供应商订单</span>
+        </template>
+        <el-menu-item index="/purchase-orders" @click="navigate('/purchase-orders')">全部订单</el-menu-item>
+        <el-menu-item
+          index="/purchase-orders?fulfillmentType=dropship"
+          @click="navigate('/purchase-orders?fulfillmentType=dropship')"
+        >
+          代发订单
+        </el-menu-item>
+        <el-menu-item
+          index="/purchase-orders?fulfillmentType=stock_in"
+          @click="navigate('/purchase-orders?fulfillmentType=stock_in')"
+        >
+          采购订单
+        </el-menu-item>
+      </el-sub-menu>
 
       <el-sub-menu index="package">
         <template #title>

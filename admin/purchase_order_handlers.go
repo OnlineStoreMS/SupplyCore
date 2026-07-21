@@ -31,8 +31,8 @@ func (h *PurchaseOrderHandler) List(c *gin.Context) {
 	supplierID, _ := strconv.ParseUint(c.Query("supplierId"), 10, 64)
 	refSoID, _ := strconv.ParseUint(c.Query("refSoId"), 10, 64)
 	list, total, err := h.ps(c).List(repo.POListFilter{
-		Status: c.Query("status"), SupplierID: supplierID,
-		RefSoID: refSoID, RefTraceID: c.Query("refTraceId"),
+		Status: c.Query("status"), FulfillmentType: c.Query("fulfillmentType"),
+		SupplierID: supplierID, RefSoID: refSoID, RefTraceID: c.Query("refTraceId"),
 		Keyword: c.Query("keyword"), Page: page, PageSize: pageSize,
 	})
 	if err != nil {

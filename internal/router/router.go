@@ -43,6 +43,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	pcClient := productcore.NewClient(cfg.Integrations.ProductCoreAPIURL)
 	wcClient := warehousecore.NewClient(cfg.Integrations.WarehouseCoreAPIURL)
 	extSvc := service.NewPurchaseExtService(repos, wcClient)
+	dashSvc := service.NewDashboardService(repos)
 	supplierH := admin.NewSupplierHandler(supplierSvc)
 	offerH := admin.NewOfferHandler(offerSvc)
 	poH := admin.NewPurchaseOrderHandler(poSvc)
@@ -50,6 +51,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	skuH := admin.NewProductSkuHandler(pcClient)
 	whH := admin.NewWarehouseHandler(wcClient)
 	extH := admin.NewPurchaseExtHandler(extSvc)
+	dashH := admin.NewDashboardHandler(dashSvc)
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok", "service": "supplycore"})
@@ -59,7 +61,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	adminGroup := v1.Group("/admin")
 	jwtMgr := jwtmgr.NewManager(cfg.Auth.JWTSecret)
 	adminGroup.Use(adminmw.AdminAuth(&cfg.Auth, jwtMgr))
-	admin.RegisterRoutes(adminGroup, supplierH, offerH, poH, trackH, skuH, whH, extH)
+	admin.RegisterRoutes(adminGroup, supplierH, offerH, poH, trackH, skuH, whH, extH, dashH)
 
 	return r
 }

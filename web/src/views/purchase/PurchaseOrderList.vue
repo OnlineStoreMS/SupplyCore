@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Plus, Search, View } from '@element-plus/icons-vue'
@@ -7,6 +7,7 @@ import {
   fetchPurchaseOrders,
   PO_STATUS_MAP,
   PAY_STATUS_MAP,
+  FULFILLMENT_TYPE_MAP,
   type PurchaseOrderListItem,
 } from '../../api/purchase'
 import { fetchSuppliers, type Supplier } from '../../api/supplier'
@@ -22,13 +23,54 @@ const status = ref('')
 const supplierId = ref<number | undefined>()
 const keyword = ref('')
 const refSoId = ref<number | undefined>()
+const fulfillmentType = ref('')
 const loading = ref(false)
 
+const activeTab = computed({
+  get: () => fulfillmentType.value || 'all',
+  set: (v: string) => {
+    fulfillmentType.value = v === 'all' ? '' : v
+    page.value = 1
+    syncRouteQuery()
+    void loadData()
+  },
+})
+
+const pageTitle = computed(() => {
+  if (fulfillmentType.value === 'dropship') return '代发订单'
+  if (fulfillmentType.value === 'stock_in') return '采购订单'
+  return '供应商订单'
+})
+
+const createLabel = computed(() => {
+  if (fulfillmentType.value === 'dropship') return '新建代发单'
+  if (fulfillmentType.value === 'stock_in') return '新建采购单'
+  return '新建供应商订单'
+})
+
 function syncQueryFilters() {
-  const q = route.query.refSoId
-  if (q) {
-    refSoId.value = Number(q)
+  const q = route.query
+  if (q.refSoId) {
+    refSoId.value = Number(q.refSoId)
+  } else {
+    refSoId.value = undefined
   }
+  if (typeof q.status === 'string') {
+    status.value = q.status
+  }
+  if (typeof q.fulfillmentType === 'string') {
+    fulfillmentType.value = q.fulfillmentType
+  } else {
+    fulfillmentType.value = ''
+  }
+}
+
+function syncRouteQuery() {
+  const query: Record<string, string> = {}
+  if (fulfillmentType.value) query.fulfillmentType = fulfillmentType.value
+  if (status.value) query.status = status.value
+  if (refSoId.value) query.refSoId = String(refSoId.value)
+  router.replace({ path: '/purchase-orders', query })
 }
 
 async function loadSuppliers() {
@@ -45,6 +87,7 @@ async function loadData() {
   try {
     const data = await fetchPurchaseOrders({
       status: status.value || undefined,
+      fulfillmentType: fulfillmentType.value || undefined,
       supplierId: supplierId.value,
       refSoId: refSoId.value,
       keyword: keyword.value || undefined,
@@ -66,7 +109,7 @@ onMounted(async () => {
   await loadData()
 })
 
-watch(() => route.query.refSoId, () => {
+watch(() => [route.query.refSoId, route.query.status, route.query.fulfillmentType], () => {
   syncQueryFilters()
   void loadData()
 })
@@ -79,12 +122,24 @@ function statusType(s: string) {
   return PO_STATUS_MAP[s]?.type || 'info'
 }
 
+function fulfillmentLabel(t: string) {
+  return FULFILLMENT_TYPE_MAP[t] || t || '—'
+}
+
 function openDetail(row: PurchaseOrderListItem) {
   router.push(`/purchase-orders/${row.id}`)
 }
 
 function openCreate() {
-  router.push('/purchase-orders/create')
+  const query: Record<string, string> = {}
+  if (fulfillmentType.value) query.fulfillmentType = fulfillmentType.value
+  router.push({ path: '/purchase-orders/create', query })
+}
+
+function onFilterChange() {
+  page.value = 1
+  syncRouteQuery()
+  void loadData()
 }
 </script>
 
@@ -92,25 +147,31 @@ function openCreate() {
   <div class="po-page">
     <el-card v-loading="loading">
       <template #header>
-        <span>采购单</span>
-        <el-button type="primary" :icon="Plus" @click="openCreate">新建采购单</el-button>
+        <span>{{ pageTitle }}</span>
+        <el-button type="primary" :icon="Plus" @click="openCreate">{{ createLabel }}</el-button>
       </template>
+
+      <el-tabs v-model="activeTab" class="type-tabs">
+        <el-tab-pane label="全部" name="all" />
+        <el-tab-pane label="代发订单" name="dropship" />
+        <el-tab-pane label="采购订单" name="stock_in" />
+      </el-tabs>
 
       <div class="toolbar">
         <el-input
           v-model="keyword"
-          placeholder="采购单号"
+          placeholder="订单号"
           :prefix-icon="Search"
           clearable
           style="width: 180px"
-          @change="() => { page = 1; loadData() }"
+          @change="onFilterChange"
         />
         <el-select
           v-model="status"
           placeholder="状态"
           clearable
           style="width: 130px"
-          @change="() => { page = 1; loadData() }"
+          @change="onFilterChange"
         >
           <el-option v-for="(v, k) in PO_STATUS_MAP" :key="k" :label="v.label" :value="k" />
         </el-select>
@@ -120,7 +181,7 @@ function openCreate() {
           clearable
           filterable
           style="width: 200px"
-          @change="() => { page = 1; loadData() }"
+          @change="onFilterChange"
         >
           <el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" />
         </el-select>
@@ -128,12 +189,25 @@ function openCreate() {
       </div>
 
       <el-table :data="tableData" stripe border>
-        <el-table-column prop="poNo" label="采购单号" width="150">
+        <el-table-column prop="poNo" label="订单号" width="150">
           <template #default="{ row }">
             <el-link type="primary" @click="openDetail(row)">{{ row.poNo }}</el-link>
           </template>
         </el-table-column>
         <el-table-column prop="supplierName" label="供应商" min-width="140" />
+        <el-table-column label="订单类型" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.fulfillmentType === 'dropship' ? 'warning' : ''" size="small">
+              {{ fulfillmentLabel(row.fulfillmentType) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="关联销售单" width="110" align="center">
+          <template #default="{ row }">
+            <span v-if="row.refSoId">{{ row.refSoId }}</span>
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
@@ -175,6 +249,9 @@ function openCreate() {
   align-items: center;
   justify-content: space-between;
 }
+.type-tabs {
+  margin-bottom: 4px;
+}
 .toolbar {
   display: flex;
   gap: 8px;
@@ -185,5 +262,8 @@ function openCreate() {
   margin-top: 16px;
   display: flex;
   justify-content: flex-end;
+}
+.muted {
+  color: #c0c4cc;
 }
 </style>

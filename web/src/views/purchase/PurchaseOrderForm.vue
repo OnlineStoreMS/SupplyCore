@@ -83,6 +83,12 @@ async function loadPO() {
 }
 
 onMounted(async () => {
+  if (!isEdit.value) {
+    const ft = route.query.fulfillmentType
+    if (ft === 'dropship' || ft === 'stock_in') {
+      form.value.fulfillmentType = ft
+    }
+  }
   await loadSuppliers()
   await loadPO()
 })
@@ -147,7 +153,7 @@ async function handleSave() {
     <el-button :icon="ArrowLeft" text @click="router.push('/purchase-orders')">返回列表</el-button>
 
     <el-card>
-      <template #header>{{ isEdit ? '编辑采购单' : '新建采购单' }}</template>
+      <template #header>{{ isEdit ? '编辑供应商订单' : '新建供应商订单' }}</template>
 
       <el-form label-width="100px">
         <el-row :gutter="16">
@@ -159,7 +165,7 @@ async function handleSave() {
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="履约类型">
+            <el-form-item label="订单类型">
               <el-select v-model="form.fulfillmentType" style="width: 100%">
                 <el-option label="采购入仓" value="stock_in" />
                 <el-option label="代发直邮" value="dropship" />
@@ -178,8 +184,14 @@ async function handleSave() {
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="外部订单 ID">
-              <el-input-number v-model="form.refSoId" :min="0" controls-position="right" style="width: 100%" />
+            <el-form-item label="关联销售单">
+              <el-input-number
+                v-model="form.refSoId"
+                :min="0"
+                controls-position="right"
+                placeholder="订单中心销售单 ID"
+                style="width: 100%"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="24">

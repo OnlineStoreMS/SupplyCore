@@ -43,6 +43,7 @@ export interface PurchaseOrderListItem {
   supplierName?: string
   status: string
   payStatus: string
+  fulfillmentType: string
   totalAmount: number
   currency: string
   itemCount: number
@@ -87,8 +88,14 @@ export const PAY_STATUS_MAP: Record<string, string> = {
   paid: '已付款',
 }
 
+export const FULFILLMENT_TYPE_MAP: Record<string, string> = {
+  stock_in: '采购入仓',
+  dropship: '代发直邮',
+}
+
 export async function fetchPurchaseOrders(params: {
   status?: string
+  fulfillmentType?: string
   supplierId?: number
   refSoId?: number
   refTraceId?: string
