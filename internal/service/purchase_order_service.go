@@ -78,26 +78,45 @@ func (s *PurchaseOrderService) Create(in *dto.PurchaseOrderInput, buyerID uint64
 	if err != nil {
 		return nil, err
 	}
-	poNo, err := s.repos.PurchaseOrder.ForTenant(s.tenantID).NextPoNo()
-	if err != nil {
-		return nil, err
+	pr := s.repos.PurchaseOrder.ForTenant(s.tenantID)
+	const maxAttempts = 5
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		poNo, err := pr.NextPoNo()
+		if err != nil {
+			return nil, err
+		}
+		po := &model.PurchaseOrder{
+			PoNo: poNo, SupplierID: in.SupplierID,
+			Status: model.POStatusDraft, TotalAmount: total,
+			Currency: defaultCurrency(in.Currency),
+			FulfillmentType: ft,
+			RefSoID: in.RefSoID, RefTraceID: in.RefTraceID,
+			BuyerID: buyerID, BuyerName: buyerName,
+			PayStatus: model.POPayStatusUnpaid, Remark: in.Remark,
+		}
+		if d := parseDate(in.ExpectedArrivalDate); d != nil {
+			po.ExpectedArrivalDate = d
+		}
+		lineItems := make([]model.PurchaseOrderItem, len(items))
+		copy(lineItems, items)
+		for i := range lineItems {
+			lineItems[i].ID = 0
+			lineItems[i].POID = 0
+		}
+		if err := pr.Create(po, lineItems); err != nil {
+			lastErr = err
+			if isUniqueViolation(err) {
+				continue
+			}
+			return nil, err
+		}
+		return s.Get(po.ID)
 	}
-	po := &model.PurchaseOrder{
-		PoNo: poNo, SupplierID: in.SupplierID,
-		Status: model.POStatusDraft, TotalAmount: total,
-		Currency: defaultCurrency(in.Currency),
-		FulfillmentType: ft,
-		RefSoID: in.RefSoID, RefTraceID: in.RefTraceID,
-		BuyerID: buyerID, BuyerName: buyerName,
-		PayStatus: model.POPayStatusUnpaid, Remark: in.Remark,
+	if lastErr != nil {
+		return nil, lastErr
 	}
-	if d := parseDate(in.ExpectedArrivalDate); d != nil {
-		po.ExpectedArrivalDate = d
-	}
-	if err := s.repos.PurchaseOrder.ForTenant(s.tenantID).Create(po, items); err != nil {
-		return nil, err
-	}
-	return s.Get(po.ID)
+	return nil, errors.New("创建采购单失败：单号冲突")
 }
 
 func (s *PurchaseOrderService) Update(id uint64, in *dto.PurchaseOrderInput) (*dto.PurchaseOrderDetail, error) {
@@ -329,6 +348,14 @@ func defaultCurrency(c string) string {
 		return "CNY"
 	}
 	return c
+}
+
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") || strings.Contains(msg, "23505")
 }
 
 func defaultFulfillment(t string) string {

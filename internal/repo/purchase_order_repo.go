@@ -152,12 +152,22 @@ func (r *PurchaseOrderRepo) CountItems(poID uint64) (int64, error) {
 
 func (r *PurchaseOrderRepo) NextPoNo() (string, error) {
 	prefix := "PO" + time.Now().Format("20060102")
-	var count int64
-	if err := r.db.Model(&model.PurchaseOrder{}).
+	var last string
+	err := r.db.Model(&model.PurchaseOrder{}).
 		Scopes(scopeTenant(r.tenantID)).
 		Where("po_no LIKE ?", prefix+"%").
-		Count(&count).Error; err != nil {
+		Order("po_no DESC").
+		Limit(1).
+		Pluck("po_no", &last).Error
+	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s%04d", prefix, count+1), nil
+	seq := 1
+	if last != "" && len(last) > len(prefix) {
+		var n int
+		if _, scanErr := fmt.Sscanf(last[len(prefix):], "%d", &n); scanErr == nil && n >= 0 {
+			seq = n + 1
+		}
+	}
+	return fmt.Sprintf("%s%04d", prefix, seq), nil
 }
