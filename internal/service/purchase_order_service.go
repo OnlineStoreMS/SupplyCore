@@ -38,7 +38,7 @@ func (s *PurchaseOrderService) List(f repo.POListFilter) ([]dto.PurchaseOrderLis
 			ID: po.ID, PoNo: po.PoNo, SupplierID: po.SupplierID,
 			Status: po.Status, PayStatus: po.PayStatus,
 			FulfillmentType: po.FulfillmentType,
-			TotalAmount: po.TotalAmount, Currency: po.Currency,
+			TotalAmount: po.TotalAmount, SaleAmount: po.SaleAmount, Currency: po.Currency,
 			RefSoID: po.RefSoID, RefTraceID: po.RefTraceID,
 			CreatedAt: formatTime(po.CreatedAt),
 		}
@@ -89,6 +89,7 @@ func (s *PurchaseOrderService) Create(in *dto.PurchaseOrderInput, buyerID uint64
 		po := &model.PurchaseOrder{
 			PoNo: poNo, SupplierID: in.SupplierID,
 			Status: model.POStatusDraft, TotalAmount: total,
+			SaleAmount: resolveSaleAmount(in.SaleAmount, items),
 			Currency: defaultCurrency(in.Currency),
 			FulfillmentType: ft,
 			RefSoID: in.RefSoID, RefTraceID: in.RefTraceID,
@@ -143,6 +144,7 @@ func (s *PurchaseOrderService) Update(id uint64, in *dto.PurchaseOrderInput) (*d
 	}
 	po.SupplierID = in.SupplierID
 	po.TotalAmount = total
+	po.SaleAmount = resolveSaleAmount(in.SaleAmount, items)
 	po.Currency = defaultCurrency(in.Currency)
 	po.FulfillmentType = ft
 	po.WarehouseID = in.WarehouseID
@@ -168,8 +170,9 @@ func (s *PurchaseOrderService) Delete(id uint64) error {
 	if err != nil {
 		return err
 	}
-	if po.Status != model.POStatusDraft {
-		return ErrImmutable
+	// 已完成单据保留审计痕迹，其它状态允许删除（含关联物流/付款/入库）
+	if po.Status == model.POStatusCompleted {
+		return ErrInvalidStatus
 	}
 	return pr.Delete(id)
 }
@@ -268,8 +271,17 @@ func (s *PurchaseOrderService) buildItems(supplierID uint64, fulfillmentType str
 		item := model.PurchaseOrderItem{
 			SkuID: in.SkuID, OfferID: in.OfferID,
 			ProductName:     strings.TrimSpace(in.ProductName),
-			SupplierSkuCode: in.SupplierSkuCode,
-			Qty: in.Qty, Remark: in.Remark,
+			SkuCode:         strings.TrimSpace(in.SkuCode),
+			SkuSpecs:        strings.TrimSpace(in.SkuSpecs),
+			PicURL:          strings.TrimSpace(in.PicURL),
+			SupplierSkuCode: strings.TrimSpace(in.SupplierSkuCode),
+			Qty:             in.Qty,
+			SaleUnitPrice:   in.SaleUnitPrice,
+			SaleAmount:      in.SaleAmount,
+			Remark:          in.Remark,
+		}
+		if item.SaleAmount <= 0 && item.SaleUnitPrice > 0 {
+			item.SaleAmount = item.SaleUnitPrice * float64(item.Qty)
 		}
 		if in.OfferID > 0 {
 			offer, err := or.GetByID(in.OfferID)
@@ -301,6 +313,17 @@ func (s *PurchaseOrderService) buildItems(supplierID uint64, fulfillmentType str
 				return nil, 0, errors.New("请填写单价或选择供货报价")
 			}
 			item.UnitPrice = in.UnitPrice
+			// 未指定对方货号时：按供应商+SKU 取报价上的对方货号（不是平台 SKU）
+			if item.SupplierSkuCode == "" && item.SkuID > 0 {
+				if offers, err := or.ListBySku(item.SkuID, true); err == nil {
+					for _, o := range offers {
+						if o.SupplierID == supplierID && strings.TrimSpace(o.SupplierSkuCode) != "" {
+							item.SupplierSkuCode = o.SupplierSkuCode
+							break
+						}
+					}
+				}
+			}
 		}
 		item.LineAmount = float64(item.Qty) * item.UnitPrice
 		total += item.LineAmount
@@ -312,7 +335,7 @@ func (s *PurchaseOrderService) buildItems(supplierID uint64, fulfillmentType str
 func (s *PurchaseOrderService) toDetail(po *model.PurchaseOrder) *dto.PurchaseOrderDetail {
 	detail := &dto.PurchaseOrderDetail{
 		ID: po.ID, PoNo: po.PoNo, SupplierID: po.SupplierID,
-		Status: po.Status, TotalAmount: po.TotalAmount, Currency: po.Currency,
+		Status: po.Status, TotalAmount: po.TotalAmount, SaleAmount: po.SaleAmount, Currency: po.Currency,
 		WarehouseID: po.WarehouseID, FulfillmentType: po.FulfillmentType,
 		RefSoID: po.RefSoID, RefTraceID: po.RefTraceID, BuyerID: po.BuyerID, BuyerName: po.BuyerName,
 		PayStatus: po.PayStatus, Remark: po.Remark,
@@ -335,7 +358,9 @@ func (s *PurchaseOrderService) toDetail(po *model.PurchaseOrder) *dto.PurchaseOr
 	for _, it := range po.Items {
 		detail.Items = append(detail.Items, dto.PurchaseOrderItemDetail{
 			ID: it.ID, SkuID: it.SkuID, OfferID: it.OfferID,
-			ProductName: it.ProductName, SupplierSkuCode: it.SupplierSkuCode, Qty: it.Qty,
+			ProductName: it.ProductName, SkuCode: it.SkuCode, SkuSpecs: it.SkuSpecs, PicURL: it.PicURL,
+			SupplierSkuCode: it.SupplierSkuCode, Qty: it.Qty,
+			SaleUnitPrice: it.SaleUnitPrice, SaleAmount: it.SaleAmount,
 			UnitPrice: it.UnitPrice, LineAmount: it.LineAmount,
 			ReceivedQty: it.ReceivedQty, Remark: it.Remark,
 		})
@@ -348,6 +373,17 @@ func defaultCurrency(c string) string {
 		return "CNY"
 	}
 	return c
+}
+
+func resolveSaleAmount(explicit float64, items []model.PurchaseOrderItem) float64 {
+	if explicit > 0 {
+		return explicit
+	}
+	var sum float64
+	for _, it := range items {
+		sum += it.SaleAmount
+	}
+	return sum
 }
 
 func isUniqueViolation(err error) bool {

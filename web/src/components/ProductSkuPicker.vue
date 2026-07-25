@@ -45,13 +45,12 @@ const selectedProduct = computed(() =>
 function productLabel(p: ProductBrief) {
   const bits = [p.name]
   if (p.materialCode) bits.push(p.materialCode)
-  bits.push(`#${p.id}`)
   return bits.join(' · ')
 }
 
 function skuLabel(sku: ProductSkuItem) {
   const spec = formatSkuSpecLabel(sku.specs) || '无规格'
-  const code = sku.skuCode || `#${sku.id}`
+  const code = sku.skuCode?.trim() || '未编码'
   return `${code} · ${spec}`
 }
 
@@ -300,7 +299,7 @@ watch(
             </el-image>
             <div class="option-text">
               <div class="option-main">
-                <span class="code">{{ sku.skuCode || `#${sku.id}` }}</span>
+                <span class="code">{{ sku.skuCode || '未编码' }}</span>
                 <span class="spec">{{ formatSkuSpecLabel(sku.specs) || '无规格' }}</span>
               </div>
               <div class="option-sub">
@@ -326,7 +325,7 @@ watch(
       <div class="preview-text">
         <div class="name">{{ productDetail?.name || selectedProduct?.name }}</div>
         <div class="meta">
-          <span>{{ selectedSku.skuCode || `#${selectedSku.id}` }}</span>
+          <span>{{ selectedSku.skuCode || '未编码' }}</span>
           <span>{{ formatSkuSpecLabel(selectedSku.specs) || '无规格' }}</span>
         </div>
       </div>

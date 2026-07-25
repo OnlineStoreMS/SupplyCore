@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { createPurchaseInbound } from '../../api/purchaseExt'
 import { fetchPurchaseOrders, fetchPurchaseOrder, type PurchaseOrderListItem } from '../../api/purchase'
 import { listWarehouses, type Warehouse } from '../../api/warehouse'
+import { resolveProductSkus } from '../../api/productSku'
 
 const router = useRouter()
 const saving = ref(false)
@@ -55,15 +56,19 @@ function onWarehouseChange(id: number) {
 async function onPoChange(poId: number) {
   const detail = await fetchPurchaseOrder(poId)
   form.poId = poId
-  items.value = detail.items.map((it) => ({
-    poItemId: it.id || 0,
-    skuId: it.skuId,
-    skuCode: it.supplierSkuCode || String(it.skuId),
-    skuName: '',
-    purchaseQty: it.qty,
-    inboundQty: Math.max(it.qty - (it.receivedQty || 0), 0),
-    unitPrice: it.unitPrice,
-  })).filter((it) => it.inboundQty > 0)
+  const skuMap = await resolveProductSkus(detail.items.map((it) => it.skuId))
+  items.value = detail.items.map((it) => {
+    const info = skuMap.get(it.skuId)
+    return {
+      poItemId: it.id || 0,
+      skuId: it.skuId,
+      skuCode: it.skuCode || info?.skuCode || it.supplierSkuCode || '—',
+      skuName: it.productName || info?.productName || '',
+      purchaseQty: it.qty,
+      inboundQty: Math.max(it.qty - (it.receivedQty || 0), 0),
+      unitPrice: it.unitPrice,
+    }
+  }).filter((it) => it.inboundQty > 0)
 }
 
 async function submit() {
@@ -148,7 +153,7 @@ onMounted(() => {
       </el-form-item>
     </el-form>
     <el-table :data="items" stripe>
-      <el-table-column prop="skuCode" label="SKU" min-width="120" />
+      <el-table-column prop="skuCode" label="商家编码" min-width="120" />
       <el-table-column prop="purchaseQty" label="采购数" width="90" />
       <el-table-column label="本次入库" width="140">
         <template #default="{ row }">

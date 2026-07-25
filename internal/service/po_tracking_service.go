@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"supplycore/internal/dto"
@@ -61,6 +62,12 @@ func (s *POTrackingService) ListShipments(poID uint64) ([]dto.ShipmentDetail, er
 func (s *POTrackingService) CreateShipment(poID uint64, in *dto.ShipmentInput) (*dto.ShipmentDetail, error) {
 	if _, err := s.ensurePOTrackable(poID); err != nil {
 		return nil, err
+	}
+	if len(in.Items) == 0 {
+		return nil, ErrBadRequest
+	}
+	if strings.TrimSpace(in.TrackingNo) == "" {
+		return nil, ErrBadRequest
 	}
 	no, err := s.repos.Shipment.ForTenant(s.tenantID).NextShipmentNo()
 	if err != nil {
@@ -227,6 +234,17 @@ func (s *POTrackingService) DeletePayment(poID, paymentID uint64) error {
 	if err != nil {
 		return err
 	}
+	atts, err := s.repos.Attachment.ForTenant(s.tenantID).ListByPO(poID)
+	if err != nil {
+		return err
+	}
+	for _, a := range atts {
+		if a.PaymentID == paymentID {
+			if err := s.repos.Attachment.ForTenant(s.tenantID).Delete(poID, a.ID); err != nil {
+				return err
+			}
+		}
+	}
 	if err := s.repos.Payment.ForTenant(s.tenantID).Delete(poID, paymentID); err != nil {
 		return err
 	}
@@ -279,23 +297,29 @@ func (s *POTrackingService) DeleteAttachment(poID, attachmentID uint64) error {
 // --- sync ---
 
 func (s *POTrackingService) syncPayStatus(po *model.PurchaseOrder) error {
-	sum, err := s.repos.Payment.ForTenant(s.tenantID).SumPaid(po.ID)
+	pr := s.repos.PurchaseOrder.ForTenant(s.tenantID)
+	fresh, err := pr.GetByID(po.ID)
 	if err != nil {
 		return err
 	}
-	pr := s.repos.PurchaseOrder.ForTenant(s.tenantID)
+	sum, err := s.repos.Payment.ForTenant(s.tenantID).SumPaid(fresh.ID)
+	if err != nil {
+		return err
+	}
 	switch {
 	case sum <= 0:
-		po.PayStatus = model.POPayStatusUnpaid
-	case sum+0.001 < po.TotalAmount:
-		po.PayStatus = model.POPayStatusPartial
+		fresh.PayStatus = model.POPayStatusUnpaid
+	case sum+0.001 < fresh.TotalAmount:
+		fresh.PayStatus = model.POPayStatusPartial
 	default:
-		po.PayStatus = model.POPayStatusPaid
-		if po.Status == model.POStatusOrdered {
-			po.Status = model.POStatusPaid
+		// 付款累计金额 >= 采购总额时自动标记已付清
+		fresh.PayStatus = model.POPayStatusPaid
+		if fresh.Status == model.POStatusOrdered {
+			fresh.Status = model.POStatusPaid
 		}
 	}
-	return pr.Save(po)
+	*po = *fresh
+	return pr.Save(fresh)
 }
 
 func (s *POTrackingService) syncShipmentStatus(poID uint64) error {
@@ -344,13 +368,29 @@ func (s *POTrackingService) buildShipmentItems(poID uint64, inputs []ShipmentIte
 	for _, it := range po.Items {
 		itemMap[it.ID] = it
 	}
+	shippedQty := map[uint64]int{}
+	existing, err := s.repos.Shipment.ForTenant(s.tenantID).ListByPO(poID)
+	if err != nil {
+		return nil, err
+	}
+	for _, sh := range existing {
+		for _, it := range sh.Items {
+			shippedQty[it.POItemID] += it.Qty
+		}
+	}
+	seen := map[uint64]struct{}{}
 	items := make([]model.PurchaseShipmentItem, 0, len(inputs))
 	for _, in := range inputs {
+		if _, dup := seen[in.POItemID]; dup {
+			return nil, ErrBadRequest
+		}
+		seen[in.POItemID] = struct{}{}
 		poItem, ok := itemMap[in.POItemID]
 		if !ok {
 			return nil, ErrNotFound
 		}
-		if in.Qty <= 0 || in.Qty > poItem.Qty {
+		remain := poItem.Qty - shippedQty[in.POItemID]
+		if in.Qty <= 0 || in.Qty > remain {
 			return nil, ErrBadRequest
 		}
 		items = append(items, model.PurchaseShipmentItem{

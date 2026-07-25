@@ -71,7 +71,7 @@ function onSearch(keyword: string) {
 
 async function loadSelected(id?: number) {
   if (!id) {
-    emit('select', undefined)
+    // 无 skuId 时不向上通知，避免编辑页冲掉 OMS 已带入的商品信息
     return
   }
   const existing = options.value.find((item) => item.skuId === id)
@@ -86,11 +86,9 @@ async function loadSelected(id?: number) {
     if (hit && hit.skuId === id) {
       mergeOptions([hit])
       emit('select', hit)
-    } else {
-      emit('select', undefined)
     }
   } catch {
-    emit('select', undefined)
+    // ignore hydrate failure
   } finally {
     loading.value = false
   }
@@ -151,7 +149,7 @@ watch(
           </el-image>
           <div class="sku-option-text">
             <div class="sku-option-main">
-              <span class="code">{{ item.skuCode || `#${item.skuId}` }}</span>
+              <span class="code">{{ item.skuCode || '未编码' }}</span>
               <span class="spec">{{ item.specLabel || '无规格' }}</span>
             </div>
             <div class="sku-option-sub">{{ item.productName }}</div>
@@ -169,7 +167,7 @@ watch(
       <div class="sku-preview-text">
         <div class="name">{{ selected.productName }}</div>
         <div class="meta">
-          <span>{{ selected.skuCode || `#${selected.skuId}` }}</span>
+          <span>{{ selected.skuCode || '未编码' }}</span>
           <span v-if="selected.specLabel">{{ selected.specLabel }}</span>
         </div>
       </div>

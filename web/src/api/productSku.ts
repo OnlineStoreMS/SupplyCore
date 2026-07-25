@@ -49,15 +49,18 @@ export interface ProductSkusPayload {
 }
 
 export function formatSkuOptionLabel(item: ProductSkuSearchItem): string {
-  const code = item.skuCode?.trim()
+  const code = item.skuCode?.trim() || '未编码'
   const spec = item.specLabel?.trim() || '-'
   const name = item.productName?.trim() || ''
-  const parts: string[] = []
-  if (code) parts.push(code)
-  parts.push(spec)
+  const parts: string[] = [code, spec]
   if (name) parts.push(name)
-  parts.push(`#${item.skuId}`)
   return parts.join(' · ')
+}
+
+/** 列表/下拉展示用的商家编码（不暴露内部 id） */
+export function skuCodeLabel(item?: Pick<ProductSkuSearchItem, 'skuCode'> | null, fallback = '—'): string {
+  const code = item?.skuCode?.trim()
+  return code || fallback
 }
 
 export function formatSkuSpecLabel(specs?: Record<string, string>): string {

@@ -9,7 +9,18 @@ import {
   updatePurchaseOrder,
   type PurchaseOrderInput,
 } from '../../api/purchase'
-import { fetchSuppliers, fetchSkuOffers, type Supplier, type SkuOffer } from '../../api/supplier'
+import {
+  createSkuOffer,
+  fetchSuppliers,
+  fetchSkuOffers,
+  type Supplier,
+  type SkuOffer,
+} from '../../api/supplier'
+import SkuSearchSelect from '../../components/SkuSearchSelect.vue'
+import {
+  resolveProductSkus,
+  type ProductSkuSearchItem,
+} from '../../api/productSku'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,13 +31,36 @@ const loading = ref(false)
 const saving = ref(false)
 const suppliers = ref<Supplier[]>([])
 const offers = ref<SkuOffer[]>([])
+const offerSkuMap = ref<Map<number, ProductSkuSearchItem>>(new Map())
+
+const offerDialogVisible = ref(false)
+const offerSaving = ref(false)
+const offerLineIndex = ref(-1)
+const offerDraft = ref({
+  supplierSkuCode: '',
+  supplyPrice: 0,
+  supportsDropship: true,
+  supportsSelfStock: false,
+})
 
 const form = ref<PurchaseOrderInput>({
   supplierId: 0,
   fulfillmentType: 'stock_in',
   currency: 'CNY',
   remark: '',
-  items: [{ skuId: 0, qty: 1, unitPrice: 0 }],
+  items: [{ qty: 1, unitPrice: 0 }],
+})
+
+/** OMS 推送带来的关联信息，仅展示不可改 */
+const linkedRef = ref<{ refSoId?: number; refTraceId?: string }>({})
+
+const linkedSaleText = computed(() => {
+  const trace = linkedRef.value.refTraceId?.trim()
+  const soId = linkedRef.value.refSoId || form.value.refSoId
+  if (trace && soId) return `${trace}（内部 #${soId}）`
+  if (trace) return trace
+  if (soId) return `#${soId}`
+  return ''
 })
 
 async function loadSuppliers() {
@@ -37,14 +71,25 @@ async function loadSuppliers() {
 async function loadOffers(supplierId: number) {
   if (!supplierId) {
     offers.value = []
+    offerSkuMap.value = new Map()
     return
   }
   try {
     const data = await fetchSkuOffers({ supplierId, page: 1, pageSize: 500 })
     offers.value = data.list
+    offerSkuMap.value = await resolveProductSkus(data.list.map((o) => o.skuId))
   } catch {
     offers.value = []
+    offerSkuMap.value = new Map()
   }
+}
+
+function offerLabel(o: SkuOffer) {
+  const info = offerSkuMap.value.get(o.skuId)
+  const code = info?.skuCode?.trim() || '未编码'
+  const bits = [code, `¥${Number(o.supplyPrice || 0).toFixed(2)}`]
+  if (o.supplierSkuCode) bits.push(`对方 ${o.supplierSkuCode}`)
+  return bits.join(' · ')
 }
 
 async function loadPO() {
@@ -66,14 +111,21 @@ async function loadPO() {
       refSoId: po.refSoId,
       remark: po.remark,
       items: po.items.map((it) => ({
-        skuId: it.skuId,
+        skuId: it.skuId || undefined,
         offerId: it.offerId || undefined,
+        productName: it.productName,
+        skuCode: it.skuCode,
+        skuSpecs: it.skuSpecs,
+        picUrl: it.picUrl,
         supplierSkuCode: it.supplierSkuCode,
         qty: it.qty,
+        saleUnitPrice: it.saleUnitPrice,
+        saleAmount: it.saleAmount,
         unitPrice: it.unitPrice,
         remark: it.remark,
       })),
     }
+    linkedRef.value = { refSoId: po.refSoId, refTraceId: po.refTraceId }
     await loadOffers(po.supplierId)
   } catch (e) {
     ElMessage.error((e as Error).message || '加载失败')
@@ -98,7 +150,7 @@ watch(() => form.value.supplierId, (id) => {
 })
 
 function addLine() {
-  form.value.items.push({ skuId: 0, qty: 1, unitPrice: 0 })
+  form.value.items.push({ qty: 1, unitPrice: 0 })
 }
 
 function removeLine(index: number) {
@@ -114,6 +166,83 @@ function applyOffer(index: number, offerId: number) {
   line.skuId = offer.skuId
   line.supplierSkuCode = offer.supplierSkuCode
   line.unitPrice = offer.supplyPrice
+  const info = offerSkuMap.value.get(offer.skuId)
+  if (info?.productName) line.productName = info.productName
+  if (info?.skuCode) line.skuCode = info.skuCode
+  if (info?.specLabel) line.skuSpecs = info.specLabel
+  if (info?.pic || info?.productPic) line.picUrl = info.pic || info.productPic
+}
+
+function onSkuPicked(index: number, item: ProductSkuSearchItem | undefined) {
+  const line = form.value.items[index]
+  if (!item) {
+    // 清空商家编码选择时，保留 OMS 已带入的商品名/图片/规格，避免编辑页被冲掉
+    return
+  }
+  line.productName = item.productName
+  line.skuCode = item.skuCode
+  line.skuSpecs = item.specLabel || line.skuSpecs
+  line.picUrl = item.pic || item.productPic || line.picUrl
+  if (line.offerId) {
+    const offer = offers.value.find((o) => o.id === line.offerId)
+    if (offer && offer.skuId !== item.skuId) {
+      line.offerId = undefined
+    }
+  }
+}
+
+function openCreateOffer(index: number) {
+  const line = form.value.items[index]
+  if (!form.value.supplierId) {
+    ElMessage.warning('请先选择供应商')
+    return
+  }
+  if (!line.skuId) {
+    ElMessage.warning('请先选择商家编码对应的商品')
+    return
+  }
+  offerLineIndex.value = index
+  offerDraft.value = {
+    supplierSkuCode: line.supplierSkuCode || '',
+    supplyPrice: Number(line.unitPrice || 0),
+    supportsDropship: form.value.fulfillmentType === 'dropship',
+    supportsSelfStock: form.value.fulfillmentType !== 'dropship',
+  }
+  offerDialogVisible.value = true
+}
+
+async function saveInlineOffer() {
+  const index = offerLineIndex.value
+  const line = form.value.items[index]
+  if (!line?.skuId || !form.value.supplierId) return
+  if (offerDraft.value.supplyPrice < 0) {
+    ElMessage.warning('请填写拿货价')
+    return
+  }
+  offerSaving.value = true
+  try {
+    const created = await createSkuOffer({
+      skuId: line.skuId,
+      supplierId: form.value.supplierId,
+      supplierSkuCode: offerDraft.value.supplierSkuCode,
+      supplyPrice: offerDraft.value.supplyPrice,
+      currency: 'CNY',
+      minOrderQty: 1,
+      supportsDropship: offerDraft.value.supportsDropship,
+      supportsSelfStock: offerDraft.value.supportsSelfStock,
+      status: 1,
+    })
+    await loadOffers(form.value.supplierId)
+    line.offerId = created.id
+    line.unitPrice = created.supplyPrice
+    line.supplierSkuCode = created.supplierSkuCode || offerDraft.value.supplierSkuCode
+    offerDialogVisible.value = false
+    ElMessage.success('已保存到 SKU 供货报价并应用到本行')
+  } catch (e) {
+    ElMessage.error((e as Error).message || '保存报价失败')
+  } finally {
+    offerSaving.value = false
+  }
 }
 
 const lineTotal = computed(() =>
@@ -125,9 +254,24 @@ async function handleSave() {
     ElMessage.warning('请选择供应商')
     return
   }
-  if (form.value.items.some((it) => !it.skuId || it.qty <= 0)) {
-    ElMessage.warning('请完善明细行')
-    return
+  const dropship = form.value.fulfillmentType === 'dropship'
+  for (const it of form.value.items) {
+    if (it.qty <= 0) {
+      ElMessage.warning('请完善明细数量')
+      return
+    }
+    if (!dropship && !it.skuId) {
+      ElMessage.warning('请选择商家编码')
+      return
+    }
+    if (!dropship && (it.unitPrice == null || it.unitPrice <= 0) && !it.offerId) {
+      ElMessage.warning('请填写采购单价或选择供货报价')
+      return
+    }
+    if (dropship && !it.skuId && !it.productName) {
+      ElMessage.warning('代发明细需有商品名称或商家编码')
+      return
+    }
   }
   saving.value = true
   try {
@@ -185,13 +329,10 @@ async function handleSave() {
           </el-col>
           <el-col :span="12">
             <el-form-item label="关联销售单">
-              <el-input-number
-                v-model="form.refSoId"
-                :min="0"
-                controls-position="right"
-                placeholder="订单中心销售单 ID"
-                style="width: 100%"
-              />
+              <div class="readonly-field">
+                <template v-if="linkedSaleText">{{ linkedSaleText }}</template>
+                <span v-else class="muted">—</span>
+              </div>
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -206,56 +347,91 @@ async function handleSave() {
         <span>采购明细</span>
         <el-button type="primary" link :icon="Plus" @click="addLine">添加行</el-button>
       </div>
+      <div class="hint-bar">
+        可不选供货报价，直接填写采购单价；也可「存为报价」写入 SKU 供货报价后继续下单。
+      </div>
 
-      <el-table :data="form.items" border size="small">
-        <el-table-column label="供货报价" width="220">
+      <el-table :data="form.items" border size="small" class="lines-table">
+        <el-table-column label="图片" width="72" align="center">
+          <template #default="{ row }">
+            <el-image
+              v-if="row.picUrl"
+              :src="row.picUrl"
+              :preview-src-list="[row.picUrl]"
+              fit="cover"
+              class="sku-pic"
+              preview-teleported
+            />
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="商品" min-width="140">
+          <template #default="{ row }">
+            <div class="name">{{ row.productName || '—' }}</div>
+            <div v-if="row.remark" class="sub">{{ row.remark }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="规格" width="120">
+          <template #default="{ row }">
+            <el-input v-model="row.skuSpecs" placeholder="规格" />
+          </template>
+        </el-table-column>
+        <el-table-column label="供货报价" width="200">
           <template #default="{ row, $index }">
             <el-select
               :model-value="row.offerId"
-              placeholder="从报价带入"
+              placeholder="可选"
               clearable
               filterable
               style="width: 100%"
               @update:model-value="(v: number) => applyOffer($index, v)"
             >
-              <el-option
-                v-for="o in offers"
-                :key="o.id"
-                :label="`SKU ${o.skuId} · ¥${o.supplyPrice}`"
-                :value="o.id"
-              />
+              <el-option v-for="o in offers" :key="o.id" :label="offerLabel(o)" :value="o.id" />
             </el-select>
+            <el-button type="primary" link size="small" @click="openCreateOffer($index)">存为报价</el-button>
           </template>
         </el-table-column>
-        <el-table-column label="SKU ID" width="120">
+        <el-table-column label="商家编码" min-width="200">
+          <template #default="{ row, $index }">
+            <SkuSearchSelect
+              v-model="row.skuId"
+              :show-preview="false"
+              placeholder="搜索商家编码（可选）"
+              @select="(item) => onSkuPicked($index, item)"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="对方货号" width="110">
           <template #default="{ row }">
-            <el-input-number v-model="row.skuId" :min="1" controls-position="right" style="width: 100%" />
+            <el-input v-model="row.supplierSkuCode" placeholder="供应商货号" />
           </template>
         </el-table-column>
-        <el-table-column label="对方货号" width="120">
-          <template #default="{ row }">
-            <el-input v-model="row.supplierSkuCode" />
-          </template>
-        </el-table-column>
-        <el-table-column label="数量" width="100">
+        <el-table-column label="数量" width="90">
           <template #default="{ row }">
             <el-input-number v-model="row.qty" :min="1" controls-position="right" style="width: 100%" />
           </template>
         </el-table-column>
-        <el-table-column label="单价" width="120">
+        <el-table-column label="实付金额" width="100" align="right">
           <template #default="{ row }">
-            <el-input-number v-model="row.unitPrice" :min="0" :precision="2" controls-position="right" style="width: 100%" />
+            <span v-if="row.saleAmount">¥{{ Number(row.saleAmount).toFixed(2) }}</span>
+            <span v-else class="muted">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="小计" width="100" align="right">
+        <el-table-column label="采购单价" width="120">
+          <template #default="{ row }">
+            <el-input-number
+              v-model="row.unitPrice"
+              :min="0"
+              :precision="2"
+              controls-position="right"
+              style="width: 100%"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="采购小计" width="90" align="right">
           <template #default="{ row }">¥{{ (row.qty * (row.unitPrice || 0)).toFixed(2) }}</template>
         </el-table-column>
-        <el-table-column label="备注" min-width="120">
-          <template #default="{ row }">
-            <el-input v-model="row.remark" />
-          </template>
-        </el-table-column>
-        <el-table-column width="60" align="center">
+        <el-table-column width="50" align="center">
           <template #default="{ $index }">
             <el-button type="danger" link :icon="Delete" @click="removeLine($index)" />
           </template>
@@ -270,6 +446,33 @@ async function handleSave() {
         </div>
       </div>
     </el-card>
+
+    <el-dialog v-model="offerDialogVisible" title="现场新增供货报价" width="440px" destroy-on-close>
+      <el-form label-width="90px">
+        <el-form-item label="对方货号">
+          <el-input v-model="offerDraft.supplierSkuCode" placeholder="供应商侧货号（可选）" />
+        </el-form-item>
+        <el-form-item label="拿货价" required>
+          <el-input-number
+            v-model="offerDraft.supplyPrice"
+            :min="0"
+            :precision="2"
+            controls-position="right"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="支持代发">
+          <el-switch v-model="offerDraft.supportsDropship" />
+        </el-form-item>
+        <el-form-item label="供货到仓">
+          <el-switch v-model="offerDraft.supportsSelfStock" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="offerDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="offerSaving" @click="saveInlineOffer">保存并应用</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -283,8 +486,30 @@ async function handleSave() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 16px 0 8px;
+  margin: 16px 0 4px;
   font-weight: 600;
+}
+.hint-bar {
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 8px;
+}
+.sku-pic {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+}
+.name {
+  font-size: 13px;
+  line-height: 1.35;
+}
+.sub {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 2px;
+}
+.muted {
+  color: #c0c4cc;
 }
 .footer {
   margin-top: 16px;
@@ -296,5 +521,14 @@ async function handleSave() {
   font-size: 16px;
   font-weight: 600;
   color: #303133;
+}
+.readonly-field {
+  min-height: 32px;
+  line-height: 32px;
+  color: #303133;
+  padding: 0 4px;
+}
+.lines-table :deep(.el-table__cell) {
+  vertical-align: top;
 }
 </style>

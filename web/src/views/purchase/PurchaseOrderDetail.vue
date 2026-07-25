@@ -14,6 +14,8 @@ import {
   PAY_STATUS_MAP,
   type PurchaseOrder,
 } from '../../api/purchase'
+import { resolveProductSkus, type ProductSkuSearchItem } from '../../api/productSku'
+import { fetchShipments, type Shipment } from '../../api/poTracking'
 import PoShipmentTab from './PoShipmentTab.vue'
 import PoPaymentTab from './PoPaymentTab.vue'
 import PoAttachmentTab from './PoAttachmentTab.vue'
@@ -26,13 +28,35 @@ const activeTab = ref('overview')
 const loading = ref(false)
 const acting = ref(false)
 const po = ref<PurchaseOrder | null>(null)
+const skuMap = ref<Map<number, ProductSkuSearchItem>>(new Map())
+const shipments = ref<Shipment[]>([])
 
 const trackable = computed(() => po.value && po.value.status !== 'draft' && po.value.status !== 'cancelled')
+
+const logisticsByItem = computed(() => {
+  const map = new Map<number, string[]>()
+  for (const sh of shipments.value) {
+    const tracking = [sh.carrierName, sh.trackingNo].filter(Boolean).join(' ')
+    if (!tracking) continue
+    for (const it of sh.items || []) {
+      const arr = map.get(it.poItemId) || []
+      if (!arr.includes(tracking)) arr.push(tracking)
+      map.set(it.poItemId, arr)
+    }
+  }
+  return map
+})
 
 async function loadData() {
   loading.value = true
   try {
     po.value = await fetchPurchaseOrder(poId.value)
+    skuMap.value = await resolveProductSkus((po.value.items || []).map((it) => it.skuId))
+    if (po.value.status !== 'draft' && po.value.status !== 'cancelled') {
+      shipments.value = await fetchShipments(poId.value)
+    } else {
+      shipments.value = []
+    }
   } catch (e) {
     ElMessage.error((e as Error).message || '加载失败')
   } finally {
@@ -50,6 +74,12 @@ function statusType(s: string) {
   return PO_STATUS_MAP[s]?.type || 'info'
 }
 
+function lineSkuCode(row: { skuId: number; skuCode?: string }) {
+  const code = row.skuCode?.trim()
+  if (code) return code
+  return skuMap.value.get(row.skuId)?.skuCode?.trim() || '—'
+}
+
 async function doAction(label: string, fn: () => Promise<unknown>) {
   try {
     await ElMessageBox.confirm(`确定${label}？`, '确认')
@@ -59,6 +89,14 @@ async function doAction(label: string, fn: () => Promise<unknown>) {
   acting.value = true
   try {
     po.value = (await fn()) as PurchaseOrder
+    if (po.value?.items) {
+      skuMap.value = await resolveProductSkus(po.value.items.map((it) => it.skuId))
+    }
+    if (po.value && po.value.status !== 'draft' && po.value.status !== 'cancelled') {
+      shipments.value = await fetchShipments(poId.value)
+    } else {
+      shipments.value = []
+    }
     ElMessage.success('操作成功')
   } catch (e) {
     ElMessage.error((e as Error).message || '操作失败')
@@ -68,7 +106,7 @@ async function doAction(label: string, fn: () => Promise<unknown>) {
 }
 
 async function handleDelete() {
-  await doAction('删除此草稿', async () => {
+  await doAction('删除此供应商订单（物流/付款等一并删除）', async () => {
     await deletePurchaseOrder(poId.value)
     router.push('/purchase-orders')
     return null
@@ -88,7 +126,13 @@ async function handleDelete() {
         >
           编辑
         </el-button>
-        <el-button v-if="po.status === 'draft'" type="danger" plain :loading="acting" @click="handleDelete">
+        <el-button
+          v-if="po.status !== 'completed'"
+          type="danger"
+          plain
+          :loading="acting"
+          @click="handleDelete"
+        >
           删除
         </el-button>
         <el-button v-if="po.status === 'draft'" type="primary" :loading="acting" @click="doAction('提交下单', () => submitPurchaseOrder(poId))">
@@ -129,8 +173,17 @@ async function handleDelete() {
             <el-descriptions-item label="供应商">{{ po.supplierName }}（{{ po.supplierCode }}）</el-descriptions-item>
             <el-descriptions-item label="付款状态">{{ PAY_STATUS_MAP[po.payStatus] || po.payStatus }}</el-descriptions-item>
             <el-descriptions-item label="订单类型">{{ po.fulfillmentType === 'dropship' ? '代发直邮' : '采购入仓' }}</el-descriptions-item>
-            <el-descriptions-item label="关联销售单">{{ po.refSoId || '—' }}</el-descriptions-item>
-            <el-descriptions-item label="外部 Trace">{{ po.refTraceId || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="关联销售单">
+              <template v-if="po.refTraceId || po.refSoId">
+                <span v-if="po.refTraceId">{{ po.refTraceId }}</span>
+                <span v-if="po.refTraceId && po.refSoId" class="muted">（内部 #{{ po.refSoId }}）</span>
+                <span v-else-if="po.refSoId">#{{ po.refSoId }}</span>
+              </template>
+              <span v-else>—</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="订单总金额">
+              ¥{{ Number(po.saleAmount || 0).toFixed(2) }} {{ po.currency }}
+            </el-descriptions-item>
             <el-descriptions-item label="采购总额">¥{{ po.totalAmount.toFixed(2) }} {{ po.currency }}</el-descriptions-item>
             <el-descriptions-item label="预计到货">{{ po.expectedArrivalDate || '—' }}</el-descriptions-item>
             <el-descriptions-item label="采购员">{{ po.buyerName || '—' }}</el-descriptions-item>
@@ -141,23 +194,55 @@ async function handleDelete() {
 
           <h4 class="section-title">采购明细</h4>
           <el-table :data="po.items" border stripe>
-            <el-table-column prop="productName" label="商品" min-width="200" show-overflow-tooltip>
+            <el-table-column label="图片" width="72" align="center">
               <template #default="{ row }">
-                {{ row.productName || (row.skuId ? `SKU ${row.skuId}` : '—') }}
+                <el-image
+                  v-if="row.picUrl"
+                  :src="row.picUrl"
+                  :preview-src-list="[row.picUrl]"
+                  fit="cover"
+                  style="width: 40px; height: 40px; border-radius: 4px"
+                  preview-teleported
+                />
+                <span v-else class="muted">—</span>
               </template>
             </el-table-column>
-            <el-table-column prop="skuId" label="SKU ID" width="90">
-              <template #default="{ row }">{{ row.skuId || '—' }}</template>
+            <el-table-column prop="productName" label="商品" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row.productName || skuMap.get(row.skuId)?.productName || '—' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="规格" width="130" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row.skuSpecs || skuMap.get(row.skuId)?.specLabel || '—' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="商家编码" width="140">
+              <template #default="{ row }">{{ lineSkuCode(row) }}</template>
             </el-table-column>
             <el-table-column prop="supplierSkuCode" label="对方货号" width="120" />
             <el-table-column prop="qty" label="数量" width="80" align="center" />
-            <el-table-column label="单价" width="100" align="right">
+            <el-table-column label="实付金额" width="110" align="right">
+              <template #default="{ row }">
+                <span v-if="row.saleAmount > 0">¥{{ Number(row.saleAmount).toFixed(2) }}</span>
+                <span v-else class="muted">—</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="采购单价" width="100" align="right">
               <template #default="{ row }">¥{{ row.unitPrice.toFixed(2) }}</template>
             </el-table-column>
-            <el-table-column label="小计" width="110" align="right">
+            <el-table-column label="采购小计" width="110" align="right">
               <template #default="{ row }">¥{{ row.lineAmount.toFixed(2) }}</template>
             </el-table-column>
-            <el-table-column prop="remark" label="备注" min-width="120" />
+            <el-table-column label="物流" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">
+                <template v-if="row.id && logisticsByItem.get(row.id)?.length">
+                  <div v-for="t in logisticsByItem.get(row.id)" :key="t">{{ t }}</div>
+                </template>
+                <span v-else class="muted">未关联</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="remark" label="商品备注" min-width="140" show-overflow-tooltip />
           </el-table>
         </el-tab-pane>
 
@@ -207,5 +292,8 @@ async function handleDelete() {
 .section-title {
   margin: 20px 0 12px;
   font-size: 15px;
+}
+.muted {
+  color: #c0c4cc;
 }
 </style>

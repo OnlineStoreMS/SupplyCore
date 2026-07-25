@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { Plus, Search, View } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Search, View, Delete } from '@element-plus/icons-vue'
 import {
   fetchPurchaseOrders,
+  deletePurchaseOrder,
   PO_STATUS_MAP,
   PAY_STATUS_MAP,
   FULFILLMENT_TYPE_MAP,
@@ -126,6 +127,10 @@ function fulfillmentLabel(t: string) {
   return FULFILLMENT_TYPE_MAP[t] || t || '—'
 }
 
+function canDelete(row: PurchaseOrderListItem) {
+  return row.status !== 'completed'
+}
+
 function openDetail(row: PurchaseOrderListItem) {
   router.push(`/purchase-orders/${row.id}`)
 }
@@ -140,6 +145,25 @@ function onFilterChange() {
   page.value = 1
   syncRouteQuery()
   void loadData()
+}
+
+async function handleDelete(row: PurchaseOrderListItem) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除供应商订单「${row.poNo}」？相关物流、付款、附件等记录将一并删除。`,
+      '确认删除',
+      { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await deletePurchaseOrder(row.id)
+    ElMessage.success('已删除')
+    await loadData()
+  } catch (e) {
+    ElMessage.error((e as Error).message || '删除失败')
+  }
 }
 </script>
 
@@ -223,9 +247,18 @@ function onFilterChange() {
         </el-table-column>
         <el-table-column prop="itemCount" label="行数" width="70" align="center" />
         <el-table-column prop="createdAt" label="创建时间" width="160" />
-        <el-table-column label="操作" width="90" fixed="right">
+        <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link :icon="View" @click="openDetail(row)">详情</el-button>
+            <el-button
+              v-if="canDelete(row)"
+              type="danger"
+              link
+              :icon="Delete"
+              @click="handleDelete(row)"
+            >
+              删除
+            </el-button>
           </template>
         </el-table-column>
       </el-table>

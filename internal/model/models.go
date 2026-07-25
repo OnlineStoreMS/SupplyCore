@@ -135,7 +135,8 @@ type PurchaseOrder struct {
 	PoNo                string     `gorm:"size:32;not null" json:"poNo"`
 	SupplierID          uint64     `gorm:"index;not null" json:"supplierId"`
 	Status              string     `gorm:"size:32;not null;default:draft" json:"status"`
-	TotalAmount         float64    `gorm:"type:decimal(14,2);not null;default:0" json:"totalAmount"`
+	TotalAmount         float64    `gorm:"type:decimal(14,2);not null;default:0" json:"totalAmount"`   // 采购总额
+	SaleAmount          float64    `gorm:"type:decimal(14,2);not null;default:0" json:"saleAmount"`    // 销售侧订单总金额（实付合计）
 	Currency            string     `gorm:"size:8;default:CNY" json:"currency"`
 	ExpectedArrivalDate *time.Time `json:"expectedArrivalDate"`
 	WarehouseID         uint64     `json:"warehouseId"`
@@ -162,10 +163,15 @@ type PurchaseOrderItem struct {
 	SkuID               uint64     `gorm:"index;not null;default:0" json:"skuId"`
 	OfferID             uint64     `json:"offerId"`
 	ProductName         string     `gorm:"size:512" json:"productName"`
-	SupplierSkuCode     string     `gorm:"size:64" json:"supplierSkuCode"`
+	SkuCode             string     `gorm:"size:64" json:"skuCode"`         // 我方商家编码
+	SkuSpecs            string     `gorm:"size:256" json:"skuSpecs"`       // 规格
+	PicURL              string     `gorm:"size:512" json:"picUrl"`         // SKU 图片
+	SupplierSkuCode     string     `gorm:"size:64" json:"supplierSkuCode"` // 对方货号
 	Qty                 int        `gorm:"not null" json:"qty"`
-	UnitPrice           float64    `gorm:"type:decimal(12,2);not null" json:"unitPrice"`
-	LineAmount          float64    `gorm:"type:decimal(14,2);not null" json:"lineAmount"`
+	SaleUnitPrice       float64    `gorm:"type:decimal(12,2);not null;default:0" json:"saleUnitPrice"` // 实付摊到单价
+	SaleAmount          float64    `gorm:"type:decimal(14,2);not null;default:0" json:"saleAmount"`     // 实付金额（销售单）
+	UnitPrice           float64    `gorm:"type:decimal(12,2);not null" json:"unitPrice"`                 // 采购单价
+	LineAmount          float64    `gorm:"type:decimal(14,2);not null" json:"lineAmount"`                // 采购小计
 	ExpectedArrivalDate *time.Time `json:"expectedArrivalDate"`
 	ReceivedQty         int        `gorm:"default:0" json:"receivedQty"`
 	Remark              string     `gorm:"type:text" json:"remark"`

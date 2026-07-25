@@ -5,8 +5,13 @@ export interface PurchaseOrderItem {
   skuId: number
   offerId?: number
   productName?: string
+  skuCode?: string
+  skuSpecs?: string
+  picUrl?: string
   supplierSkuCode?: string
   qty: number
+  saleUnitPrice?: number
+  saleAmount?: number
   unitPrice: number
   lineAmount?: number
   receivedQty?: number
@@ -21,6 +26,7 @@ export interface PurchaseOrder {
   supplierCode?: string
   status: string
   totalAmount: number
+  saleAmount?: number
   currency: string
   expectedArrivalDate?: string
   warehouseId?: number
@@ -61,12 +67,19 @@ export interface PurchaseOrderInput {
   expectedArrivalDate?: string
   warehouseId?: number
   refSoId?: number
+  saleAmount?: number
   remark?: string
   items: Array<{
-    skuId: number
+    skuId?: number
     offerId?: number
+    productName?: string
+    skuCode?: string
+    skuSpecs?: string
+    picUrl?: string
     supplierSkuCode?: string
     qty: number
+    saleUnitPrice?: number
+    saleAmount?: number
     unitPrice?: number
     remark?: string
   }>
@@ -103,7 +116,7 @@ export async function fetchPurchaseOrders(params: {
   keyword?: string
   page?: number
   pageSize?: number
-}) {
+} = {}) {
   const res = await client.get('/purchase-orders', { params })
   return unwrap<PageData<PurchaseOrderListItem>>(res)
 }

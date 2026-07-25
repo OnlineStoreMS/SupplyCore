@@ -1,15 +1,28 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Delete } from '@element-plus/icons-vue'
+import { Plus, Delete, Upload } from '@element-plus/icons-vue'
+import type { UploadFile } from 'element-plus'
 import type { PurchaseOrder } from '../../api/purchase'
-import { fetchPayments, createPayment, deletePayment, type Payment } from '../../api/poTracking'
+import {
+  fetchPayments,
+  createPayment,
+  deletePayment,
+  fetchAttachments,
+  createAttachment,
+  deleteAttachment,
+  uploadFile as uploadPoFile,
+  type Payment,
+  type Attachment,
+} from '../../api/poTracking'
 
 const props = defineProps<{ poId: number; po: PurchaseOrder; readonly: boolean }>()
 const emit = defineEmits<{ refresh: [] }>()
 
 const loading = ref(false)
+const saving = ref(false)
 const list = ref<Payment[]>([])
+const attachments = ref<Attachment[]>([])
 const dialogVisible = ref(false)
 const form = ref({
   payAmount: 0,
@@ -19,13 +32,35 @@ const form = ref({
   payeeName: '',
   remark: '',
 })
+const pendingFiles = ref<File[]>([])
+const fileList = ref<UploadFile[]>([])
 
-const paidSum = computed(() => list.value.filter((p) => p.payStatus === 'paid').reduce((s, p) => s + p.payAmount, 0))
+const paidSum = computed(() =>
+  list.value.filter((p) => p.payStatus === 'paid').reduce((s, p) => s + p.payAmount, 0),
+)
+
+const remainAmount = computed(() => Math.max(0, Number(props.po.totalAmount || 0) - paidSum.value))
+
+const screenshotsByPayment = computed(() => {
+  const map = new Map<number, Attachment[]>()
+  for (const a of attachments.value) {
+    if (a.fileType !== 'payment_screenshot' || !a.paymentId) continue
+    const arr = map.get(a.paymentId) || []
+    arr.push(a)
+    map.set(a.paymentId, arr)
+  }
+  return map
+})
 
 async function loadData() {
   loading.value = true
   try {
-    list.value = await fetchPayments(props.poId)
+    const [payments, files] = await Promise.all([
+      fetchPayments(props.poId),
+      fetchAttachments(props.poId),
+    ])
+    list.value = payments
+    attachments.value = files
   } catch (e) {
     ElMessage.error((e as Error).message || '加载失败')
   } finally {
@@ -36,16 +71,27 @@ async function loadData() {
 onMounted(loadData)
 
 function openCreate() {
-  const remain = Math.max(0, props.po.totalAmount - paidSum.value)
   form.value = {
-    payAmount: remain,
+    payAmount: remainAmount.value || Number(props.po.totalAmount || 0) || 0.01,
     payMethod: 'bank',
     payAccount: '',
     payeeAccount: '',
     payeeName: '',
     remark: '',
   }
+  pendingFiles.value = []
+  fileList.value = []
   dialogVisible.value = true
+}
+
+function onFileChange(_file: UploadFile, files: UploadFile[]) {
+  fileList.value = files
+  pendingFiles.value = files.flatMap((f) => (f.raw ? [f.raw as File] : []))
+}
+
+function onFileRemove(_file: UploadFile, files: UploadFile[]) {
+  fileList.value = files
+  pendingFiles.value = files.flatMap((f) => (f.raw ? [f.raw as File] : []))
 }
 
 async function handleSave() {
@@ -53,24 +99,60 @@ async function handleSave() {
     ElMessage.warning('请输入付款金额')
     return
   }
+  if (Number(props.po.totalAmount || 0) <= 0) {
+    try {
+      await ElMessageBox.confirm(
+        '当前采购总额为 ¥0.00，记录付款后将无法按金额自动标记已付清。是否仍要继续？',
+        '提示',
+        { type: 'warning' },
+      )
+    } catch {
+      return
+    }
+  }
+  saving.value = true
   try {
-    await createPayment(props.poId, { ...form.value, payStatus: 'paid' })
-    ElMessage.success('已记录付款')
+    const payment = await createPayment(props.poId, { ...form.value, payStatus: 'paid' })
+    for (const file of pendingFiles.value) {
+      const result = await uploadPoFile(file)
+      await createAttachment(props.poId, {
+        fileType: 'payment_screenshot',
+        fileName: result.fileName,
+        fileUrl: result.url,
+        paymentId: payment.id,
+        remark: '付款截图',
+      })
+    }
+    const nextPaid = paidSum.value + form.value.payAmount
+    const total = Number(props.po.totalAmount || 0)
+    if (total > 0 && nextPaid + 0.001 >= total) {
+      ElMessage.success('已记录付款，采购单已自动标记为已付清')
+    } else if (total > 0) {
+      ElMessage.success(`已记录付款（已付 ¥${nextPaid.toFixed(2)} / ¥${total.toFixed(2)}）`)
+    } else {
+      ElMessage.success('已记录付款')
+    }
     dialogVisible.value = false
     await loadData()
     emit('refresh')
   } catch (e) {
     ElMessage.error((e as Error).message || '保存失败')
+  } finally {
+    saving.value = false
   }
 }
 
 async function handleDelete(row: Payment) {
   try {
-    await ElMessageBox.confirm('确定删除此付款记录？', '确认')
+    await ElMessageBox.confirm('确定删除此付款记录？关联的付款截图也会删除。', '确认')
   } catch {
     return
   }
   try {
+    const shots = screenshotsByPayment.value.get(row.id) || []
+    for (const a of shots) {
+      await deleteAttachment(props.poId, a.id)
+    }
     await deletePayment(props.poId, row.id)
     ElMessage.success('已删除')
     await loadData()
@@ -86,12 +168,21 @@ const payMethodLabel: Record<string, string> = {
   wechat: '微信',
   other: '其他',
 }
+
+function payStatusLabel(status: string) {
+  if (status === 'partial') return '部分付款'
+  if (status === 'paid') return '已付清'
+  return '未付清'
+}
 </script>
 
 <template>
   <div v-loading="loading">
     <div class="summary">
-      采购总额 ¥{{ po.totalAmount.toFixed(2) }} · 已付 ¥{{ paidSum.toFixed(2) }} · 付款状态 {{ po.payStatus === 'partial' ? '部分付款' : po.payStatus === 'paid' ? '已付清' : '未付清' }}
+      采购总额 ¥{{ Number(po.totalAmount || 0).toFixed(2) }}
+      · 已付 ¥{{ paidSum.toFixed(2) }}
+      · 待付 ¥{{ remainAmount.toFixed(2) }}
+      · 付款状态 {{ payStatusLabel(po.payStatus) }}
     </div>
     <div v-if="!readonly" class="toolbar">
       <el-button type="primary" :icon="Plus" @click="openCreate">记录付款</el-button>
@@ -102,6 +193,22 @@ const payMethodLabel: Record<string, string> = {
       </el-table-column>
       <el-table-column label="方式" width="100">
         <template #default="{ row }">{{ payMethodLabel[row.payMethod || ''] || row.payMethod || '—' }}</template>
+      </el-table-column>
+      <el-table-column label="付款截图" min-width="160">
+        <template #default="{ row }">
+          <div v-if="screenshotsByPayment.get(row.id)?.length" class="shots">
+            <el-image
+              v-for="a in screenshotsByPayment.get(row.id)"
+              :key="a.id"
+              :src="a.fileUrl"
+              :preview-src-list="(screenshotsByPayment.get(row.id) || []).map((x) => x.fileUrl)"
+              fit="cover"
+              class="shot"
+              preview-teleported
+            />
+          </div>
+          <span v-else class="muted">—</span>
+        </template>
       </el-table-column>
       <el-table-column prop="payAccount" label="打款账号" min-width="120" />
       <el-table-column prop="payeeAccount" label="收款账号" min-width="120" />
@@ -115,10 +222,20 @@ const payMethodLabel: Record<string, string> = {
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" title="记录付款" width="480px">
+    <el-dialog v-model="dialogVisible" title="记录付款" width="560px">
       <el-form :model="form" label-width="90px">
         <el-form-item label="付款金额" required>
-          <el-input-number v-model="form.payAmount" :min="0.01" :precision="2" controls-position="right" style="width: 100%" />
+          <el-input-number
+            v-model="form.payAmount"
+            :min="0.01"
+            :precision="2"
+            controls-position="right"
+            style="width: 100%"
+          />
+          <div class="form-hint">
+            采购总额 ¥{{ Number(po.totalAmount || 0).toFixed(2) }}，待付 ¥{{ remainAmount.toFixed(2) }}；
+            累计付清后自动标记已付款
+          </div>
         </el-form-item>
         <el-form-item label="付款方式">
           <el-select v-model="form.payMethod" style="width: 100%">
@@ -127,6 +244,18 @@ const payMethodLabel: Record<string, string> = {
             <el-option label="微信" value="wechat" />
             <el-option label="其他" value="other" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="付款截图">
+          <el-upload
+            v-model:file-list="fileList"
+            :auto-upload="false"
+            list-type="picture-card"
+            accept="image/*"
+            :on-change="onFileChange"
+            :on-remove="onFileRemove"
+          >
+            <el-icon><Upload /></el-icon>
+          </el-upload>
         </el-form-item>
         <el-form-item label="打款账号">
           <el-input v-model="form.payAccount" />
@@ -143,7 +272,7 @@ const payMethodLabel: Record<string, string> = {
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSave">保存</el-button>
+        <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -157,5 +286,24 @@ const payMethodLabel: Record<string, string> = {
 }
 .toolbar {
   margin-bottom: 12px;
+}
+.form-hint {
+  margin-top: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.shots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.shot {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+}
+.muted {
+  color: var(--el-text-color-placeholder);
 }
 </style>

@@ -163,7 +163,7 @@ async function onSupplierChange(supplierId: number) {
 
 async function handleSave() {
   if (!editing.value.skuId || !editing.value.supplierId) {
-    ElMessage.warning('请选择商品 SKU 与供应商')
+    ElMessage.warning('请选择商家编码对应的商品与供应商')
     return
   }
   if (editing.value.supplyPrice == null || editing.value.supplyPrice < 0) {
@@ -221,7 +221,7 @@ function addressLabel(addr: SupplierAddress) {
         <div class="toolbar-sku">
           <SkuSearchSelect
             v-model="filterSkuId"
-            placeholder="按商品 / SKU / 规格筛选"
+            placeholder="按商家编码 / 规格 / 商品名筛选"
             :show-preview="false"
             clearable
           />
@@ -240,7 +240,7 @@ function addressLabel(addr: SupplierAddress) {
       </div>
 
       <el-table :data="tableData" stripe :span-method="spanMethod" class="offer-table">
-        <el-table-column prop="skuProduct" label="商品 SKU" min-width="240">
+        <el-table-column prop="skuProduct" label="商品" min-width="240">
           <template #default="{ row }">
             <div class="sku-cell">
               <el-image
@@ -253,8 +253,8 @@ function addressLabel(addr: SupplierAddress) {
                 </template>
               </el-image>
               <div class="sku-text">
-                <div class="sku-name">{{ row.skuInfo?.productName || `SKU #${row.skuId}` }}</div>
-                <div class="sku-code">{{ row.skuInfo?.skuCode || `#${row.skuId}` }}</div>
+                <div class="sku-name">{{ row.skuInfo?.productName || '商品' }}</div>
+                <div class="sku-code">商家编码 {{ row.skuInfo?.skuCode || '—' }}</div>
                 <el-button type="primary" link size="small" @click="handleAdd(row.skuId)">
                   + 加报价
                 </el-button>
@@ -321,11 +321,11 @@ function addressLabel(addr: SupplierAddress) {
       destroy-on-close
     >
       <el-form :model="editing" label-width="100px">
-        <el-form-item label="商品 SKU" required>
+        <el-form-item label="商家编码" required>
           <ProductSkuPicker v-if="!editing.id" v-model="editing.skuId" />
           <template v-else>
             <SkuSearchSelect v-model="editing.skuId" disabled />
-            <div class="hint">编辑时不可更换 SKU</div>
+            <div class="hint">编辑时不可更换商品 SKU</div>
           </template>
         </el-form-item>
         <el-form-item label="供应商" required>

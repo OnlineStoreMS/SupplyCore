@@ -132,6 +132,70 @@ func (r *PurchaseOrderRepo) SaveItem(item *model.PurchaseOrderItem) error {
 
 func (r *PurchaseOrderRepo) Delete(id uint64) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		var shipmentIDs []uint64
+		if err := tx.Model(&model.PurchaseShipment{}).
+			Scopes(scopeTenant(r.tenantID)).
+			Where("po_id = ?", id).
+			Pluck("id", &shipmentIDs).Error; err != nil {
+			return err
+		}
+		if len(shipmentIDs) > 0 {
+			if err := tx.Scopes(scopeTenant(r.tenantID)).
+				Where("shipment_id IN ?", shipmentIDs).
+				Delete(&model.PurchaseShipmentItem{}).Error; err != nil {
+				return err
+			}
+		}
+		for _, m := range []any{
+			&model.PurchaseShipment{},
+			&model.PurchasePayment{},
+			&model.PurchaseAttachment{},
+			&model.PackageReceiveRecord{},
+		} {
+			if err := tx.Scopes(scopeTenant(r.tenantID)).
+				Where("po_id = ?", id).
+				Delete(m).Error; err != nil {
+				return err
+			}
+		}
+		var inboundIDs []uint64
+		if err := tx.Model(&model.PurchaseInbound{}).
+			Scopes(scopeTenant(r.tenantID)).
+			Where("po_id = ?", id).
+			Pluck("id", &inboundIDs).Error; err != nil {
+			return err
+		}
+		if len(inboundIDs) > 0 {
+			var returnIDs []uint64
+			if err := tx.Model(&model.PurchaseReturn{}).
+				Scopes(scopeTenant(r.tenantID)).
+				Where("inbound_id IN ?", inboundIDs).
+				Pluck("id", &returnIDs).Error; err != nil {
+				return err
+			}
+			if len(returnIDs) > 0 {
+				if err := tx.Scopes(scopeTenant(r.tenantID)).
+					Where("return_id IN ?", returnIDs).
+					Delete(&model.PurchaseReturnItem{}).Error; err != nil {
+					return err
+				}
+				if err := tx.Scopes(scopeTenant(r.tenantID)).
+					Where("id IN ?", returnIDs).
+					Delete(&model.PurchaseReturn{}).Error; err != nil {
+					return err
+				}
+			}
+			if err := tx.Scopes(scopeTenant(r.tenantID)).
+				Where("inbound_id IN ?", inboundIDs).
+				Delete(&model.PurchaseInboundItem{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Scopes(scopeTenant(r.tenantID)).
+				Where("id IN ?", inboundIDs).
+				Delete(&model.PurchaseInbound{}).Error; err != nil {
+				return err
+			}
+		}
 		if err := tx.Scopes(scopeTenant(r.tenantID)).
 			Where("po_id = ?", id).
 			Delete(&model.PurchaseOrderItem{}).Error; err != nil {
