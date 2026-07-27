@@ -173,10 +173,9 @@ async function handleDelete() {
             <el-descriptions-item label="供应商">{{ po.supplierName }}（{{ po.supplierCode }}）</el-descriptions-item>
             <el-descriptions-item label="付款状态">{{ PAY_STATUS_MAP[po.payStatus] || po.payStatus }}</el-descriptions-item>
             <el-descriptions-item label="订单类型">{{ po.fulfillmentType === 'dropship' ? '代发直邮' : '采购入仓' }}</el-descriptions-item>
-            <el-descriptions-item label="关联销售单">
+            <el-descriptions-item label="关联订单">
               <template v-if="po.refTraceId || po.refSoId">
                 <span v-if="po.refTraceId">{{ po.refTraceId }}</span>
-                <span v-if="po.refTraceId && po.refSoId" class="muted">（内部 #{{ po.refSoId }}）</span>
                 <span v-else-if="po.refSoId">#{{ po.refSoId }}</span>
               </template>
               <span v-else>—</span>

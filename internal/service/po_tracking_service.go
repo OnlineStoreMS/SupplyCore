@@ -475,13 +475,24 @@ func defaultPayRecordStatus(s string) string {
 }
 
 func parseDateTime(s string) *time.Time {
+	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil
 	}
-	layouts := []string{"2006-01-02 15:04:05", "2006-01-02T15:04:05", "2006-01-02"}
+	layouts := []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02T15:04:05",
+		"2006-01-02",
+		time.RFC3339,
+	}
 	for _, layout := range layouts {
 		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
 			return &t
+		}
+		if t, err := time.Parse(layout, s); err == nil {
+			local := t.In(time.Local)
+			return &local
 		}
 	}
 	return nil

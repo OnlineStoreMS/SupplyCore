@@ -226,9 +226,10 @@ async function handleDelete(row: PurchaseOrderListItem) {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="关联销售单" width="110" align="center">
+        <el-table-column label="关联订单" min-width="150">
           <template #default="{ row }">
-            <span v-if="row.refSoId">{{ row.refSoId }}</span>
+            <span v-if="row.refTraceId">{{ row.refTraceId }}</span>
+            <span v-else-if="row.refSoId" class="muted">#{{ row.refSoId }}</span>
             <span v-else class="muted">—</span>
           </template>
         </el-table-column>

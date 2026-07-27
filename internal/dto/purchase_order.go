@@ -23,6 +23,7 @@ type PurchaseOrderInput struct {
 	WarehouseID         uint64                   `json:"warehouseId"`
 	RefSoID             uint64                   `json:"refSoId"`
 	RefTraceID          string                   `json:"refTraceId"`
+	OrderedAt           string                   `json:"orderedAt"` // 下单时间，手工新建可改
 	SaleAmount          float64                  `json:"saleAmount"` // 销售侧订单总实付
 	Remark              string                   `json:"remark"`
 	Items               []PurchaseOrderItemInput `json:"items" binding:"required,min=1,dive"`

@@ -92,12 +92,18 @@ func (s *PurchaseOrderService) Create(in *dto.PurchaseOrderInput, buyerID uint64
 			SaleAmount: resolveSaleAmount(in.SaleAmount, items),
 			Currency: defaultCurrency(in.Currency),
 			FulfillmentType: ft,
-			RefSoID: in.RefSoID, RefTraceID: in.RefTraceID,
+			RefSoID: in.RefSoID, RefTraceID: strings.TrimSpace(in.RefTraceID),
 			BuyerID: buyerID, BuyerName: buyerName,
 			PayStatus: model.POPayStatusUnpaid, Remark: in.Remark,
 		}
 		if d := parseDate(in.ExpectedArrivalDate); d != nil {
 			po.ExpectedArrivalDate = d
+		}
+		if t := parseDateTime(in.OrderedAt); t != nil {
+			po.OrderedAt = t
+		} else {
+			now := time.Now()
+			po.OrderedAt = &now
 		}
 		lineItems := make([]model.PurchaseOrderItem, len(items))
 		copy(lineItems, items)
@@ -149,9 +155,12 @@ func (s *PurchaseOrderService) Update(id uint64, in *dto.PurchaseOrderInput) (*d
 	po.FulfillmentType = ft
 	po.WarehouseID = in.WarehouseID
 	po.RefSoID = in.RefSoID
-	po.RefTraceID = in.RefTraceID
+	po.RefTraceID = strings.TrimSpace(in.RefTraceID)
 	po.Remark = in.Remark
 	po.ExpectedArrivalDate = parseDate(in.ExpectedArrivalDate)
+	if t := parseDateTime(in.OrderedAt); t != nil {
+		po.OrderedAt = t
+	}
 	if err := pr.Save(po); err != nil {
 		return nil, err
 	}
@@ -179,8 +188,10 @@ func (s *PurchaseOrderService) Delete(id uint64) error {
 
 func (s *PurchaseOrderService) Submit(id uint64) (*dto.PurchaseOrderDetail, error) {
 	return s.transition(id, model.POStatusDraft, model.POStatusOrdered, func(po *model.PurchaseOrder) {
-		now := time.Now()
-		po.OrderedAt = &now
+		if po.OrderedAt == nil {
+			now := time.Now()
+			po.OrderedAt = &now
+		}
 	})
 }
 
@@ -413,7 +424,7 @@ func parseDate(s string) *time.Time {
 }
 
 func formatTime(t time.Time) string {
-	return t.Format("2006-01-02 15:04")
+	return t.Format("2006-01-02 15:04:05")
 }
 
 func formatTimePtr(t *time.Time) string {

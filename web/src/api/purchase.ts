@@ -67,6 +67,8 @@ export interface PurchaseOrderInput {
   expectedArrivalDate?: string
   warehouseId?: number
   refSoId?: number
+  refTraceId?: string
+  orderedAt?: string
   saleAmount?: number
   remark?: string
   items: Array<{

@@ -17,10 +17,12 @@ import {
   type SkuOffer,
 } from '../../api/supplier'
 import SkuSearchSelect from '../../components/SkuSearchSelect.vue'
+import OrderSearchSelect from '../../components/OrderSearchSelect.vue'
 import {
   resolveProductSkus,
   type ProductSkuSearchItem,
 } from '../../api/productSku'
+import type { OrderBrief } from '../../api/order'
 
 const route = useRoute()
 const router = useRouter()
@@ -43,25 +45,33 @@ const offerDraft = ref({
   supportsSelfStock: false,
 })
 
+function nowOrderedAt() {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
 const form = ref<PurchaseOrderInput>({
   supplierId: 0,
   fulfillmentType: 'stock_in',
   currency: 'CNY',
   remark: '',
+  orderedAt: nowOrderedAt(),
   items: [{ qty: 1, unitPrice: 0 }],
 })
 
-/** OMS 推送带来的关联信息，仅展示不可改 */
-const linkedRef = ref<{ refSoId?: number; refTraceId?: string }>({})
-
-const linkedSaleText = computed(() => {
-  const trace = linkedRef.value.refTraceId?.trim()
-  const soId = linkedRef.value.refSoId || form.value.refSoId
-  if (trace && soId) return `${trace}（内部 #${soId}）`
-  if (trace) return trace
-  if (soId) return `#${soId}`
-  return ''
-})
+function onOrderSelect(item: OrderBrief | undefined) {
+  if (!item) {
+    form.value.refSoId = undefined
+    form.value.refTraceId = undefined
+    return
+  }
+  form.value.refTraceId = item.orderNo
+  form.value.refSoId = item.id || undefined
+  if (item.payAmount != null && item.payAmount > 0) {
+    form.value.saleAmount = item.payAmount
+  }
+}
 
 async function loadSuppliers() {
   const data = await fetchSuppliers({ page: 1, pageSize: 200 })
@@ -109,6 +119,8 @@ async function loadPO() {
       expectedArrivalDate: po.expectedArrivalDate,
       warehouseId: po.warehouseId,
       refSoId: po.refSoId,
+      refTraceId: po.refTraceId,
+      orderedAt: po.orderedAt || nowOrderedAt(),
       remark: po.remark,
       items: po.items.map((it) => ({
         skuId: it.skuId || undefined,
@@ -125,7 +137,6 @@ async function loadPO() {
         remark: it.remark,
       })),
     }
-    linkedRef.value = { refSoId: po.refSoId, refTraceId: po.refTraceId }
     await loadOffers(po.supplierId)
   } catch (e) {
     ElMessage.error((e as Error).message || '加载失败')
@@ -328,11 +339,23 @@ async function handleSave() {
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="关联销售单">
-              <div class="readonly-field">
-                <template v-if="linkedSaleText">{{ linkedSaleText }}</template>
-                <span v-else class="muted">—</span>
-              </div>
+            <el-form-item label="关联订单">
+              <OrderSearchSelect
+                v-model="form.refTraceId"
+                @select="onOrderSelect"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="下单时间">
+              <el-date-picker
+                v-model="form.orderedAt"
+                type="datetime"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                format="YYYY-MM-DD HH:mm"
+                placeholder="默认当前时间"
+                style="width: 100%"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -521,12 +544,6 @@ async function handleSave() {
   font-size: 16px;
   font-weight: 600;
   color: #303133;
-}
-.readonly-field {
-  min-height: 32px;
-  line-height: 32px;
-  color: #303133;
-  padding: 0 4px;
 }
 .lines-table :deep(.el-table__cell) {
   vertical-align: top;
