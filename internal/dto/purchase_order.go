@@ -12,6 +12,8 @@ type PurchaseOrderItemInput struct {
 	SaleUnitPrice   float64 `json:"saleUnitPrice"`
 	SaleAmount      float64 `json:"saleAmount"`
 	UnitPrice       float64 `json:"unitPrice"`
+	RefSoID         uint64  `json:"refSoId"`
+	RefOrderNo      string  `json:"refOrderNo"`
 	Remark          string  `json:"remark"`
 }
 
@@ -23,7 +25,7 @@ type PurchaseOrderInput struct {
 	WarehouseID         uint64                   `json:"warehouseId"`
 	RefSoID             uint64                   `json:"refSoId"`
 	RefTraceID          string                   `json:"refTraceId"`
-	OrderedAt           string                   `json:"orderedAt"` // 下单时间，手工新建可改
+	OrderedAt           string                   `json:"orderedAt"` // 采购时间；手工新建可改，默认当天
 	SaleAmount          float64                  `json:"saleAmount"` // 销售侧订单总实付
 	Remark              string                   `json:"remark"`
 	Items               []PurchaseOrderItemInput `json:"items" binding:"required,min=1,dive"`
@@ -44,6 +46,9 @@ type PurchaseOrderItemDetail struct {
 	UnitPrice       float64 `json:"unitPrice"`
 	LineAmount      float64 `json:"lineAmount"`
 	ReceivedQty     int     `json:"receivedQty"`
+	RefSoID         uint64  `json:"refSoId,omitempty"`
+	RefOrderNo      string  `json:"refOrderNo,omitempty"`
+	Cancelled       bool    `json:"cancelled"`
 	Remark          string  `json:"remark"`
 }
 
@@ -84,8 +89,38 @@ type PurchaseOrderListItem struct {
 	SaleAmount      float64 `json:"saleAmount"`
 	Currency        string  `json:"currency"`
 	ItemCount       int     `json:"itemCount"`
+	SkuSpecs        string  `json:"skuSpecs"` // 明细规格汇总（同规格累加数量，如「规格 x2」；分号分隔）
 	RefSoID         uint64  `json:"refSoId,omitempty"`
 	RefTraceID      string  `json:"refTraceId,omitempty"`
 	OrderedAt       string  `json:"orderedAt,omitempty"`
 	CreatedAt       string  `json:"createdAt"`
+}
+
+type MergePurchaseOrdersInput struct {
+	SourcePoIDs []uint64 `json:"sourcePoIds" binding:"required,min=2"`
+	TargetPoID  uint64   `json:"targetPoId"` // 可选；默认取 sourcePoIds[0]
+}
+
+type MergePurchaseOrdersResult struct {
+	*PurchaseOrderDetail
+	MergedFromPoNos []string `json:"mergedFromPoNos"`
+	Relinked        int64    `json:"relinked"`
+}
+
+// DetachSalesOrderInput 从代发单中撤回某笔销售单（明细标灰作废 + 备注说明）。
+type DetachSalesOrderInput struct {
+	PoNo     string `json:"poNo"`
+	OrderNo  string `json:"orderNo"`
+	SoID     uint64 `json:"soId"`
+	Reason   string `json:"reason"`
+}
+
+// UpdatePOItemPriceInput 更新采购明细单价（已下单未付款也可改）。
+type UpdatePOItemPriceInput struct {
+	ItemID    uint64  `json:"itemId" binding:"required"`
+	UnitPrice float64 `json:"unitPrice"`
+}
+
+type UpdatePOItemPricesInput struct {
+	Items []UpdatePOItemPriceInput `json:"items" binding:"required,min=1,dive"`
 }

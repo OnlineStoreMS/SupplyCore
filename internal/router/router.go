@@ -6,11 +6,12 @@ import (
 	"supplycore/admin"
 	adminmw "supplycore/admin/middleware"
 	"supplycore/internal/config"
-	jwtmgr "supplycore/internal/pkg/jwt"
 	"supplycore/internal/integrations/ordercore"
 	"supplycore/internal/integrations/productcore"
 	"supplycore/internal/integrations/warehousecore"
+	jwtmgr "supplycore/internal/pkg/jwt"
 	"supplycore/internal/repo"
+	"supplycore/internal/scheduler"
 	"supplycore/internal/service"
 	"supplycore/internal/storage"
 
@@ -18,7 +19,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
+func Setup(db *gorm.DB, cfg *config.Config) (*gin.Engine, *scheduler.SettlementScheduler) {
 	if cfg.Server.Mode == "release" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -40,15 +41,15 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	supplierSvc := service.NewSupplierService(repos)
 	offerSvc := service.NewOfferService(repos)
 	poSvc := service.NewPurchaseOrderService(repos)
-	trackSvc := service.NewPOTrackingService(repos)
 	pcClient := productcore.NewClient(cfg.Integrations.ProductCoreAPIURL)
 	wcClient := warehousecore.NewClient(cfg.Integrations.WarehouseCoreAPIURL)
 	ocClient := ordercore.NewClient(cfg.Integrations.OrderCoreAPIURL)
+	trackSvc := service.NewPOTrackingService(repos, ocClient)
 	extSvc := service.NewPurchaseExtService(repos, wcClient)
 	dashSvc := service.NewDashboardService(repos)
 	supplierH := admin.NewSupplierHandler(supplierSvc)
 	offerH := admin.NewOfferHandler(offerSvc)
-	poH := admin.NewPurchaseOrderHandler(poSvc)
+	poH := admin.NewPurchaseOrderHandler(poSvc, ocClient)
 	trackH := admin.NewPOTrackingHandler(trackSvc, store)
 	skuH := admin.NewProductSkuHandler(pcClient)
 	whH := admin.NewWarehouseHandler(wcClient)
@@ -61,12 +62,24 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	})
 
 	v1 := r.Group("/api/v1")
+	photoH := admin.NewPhotoUploadHandler(store)
+	mobile := v1.Group("/mobile")
+	{
+		mobile.GET("/photo-upload/:token", photoH.MobileGet)
+		mobile.POST("/photo-upload/:token", photoH.MobileUpload)
+	}
+
 	adminGroup := v1.Group("/admin")
 	jwtMgr := jwtmgr.NewManager(cfg.Auth.JWTSecret)
 	adminGroup.Use(adminmw.AdminAuth(&cfg.Auth, jwtMgr))
+	adminGroup.POST("/photo-upload-sessions", photoH.CreateSession)
+	adminGroup.GET("/photo-upload-sessions/:token", photoH.GetSession)
 	admin.RegisterRoutes(adminGroup, supplierH, offerH, poH, trackH, skuH, whH, extH, dashH, orderH)
 
-	return r
+	settlementSvc := service.NewSettlementMergeService(repos, poSvc, ocClient, jwtMgr)
+	sched := scheduler.NewSettlementScheduler(settlementSvc)
+
+	return r, sched
 }
 
 func corsMiddleware(cfg *config.Config) gin.HandlerFunc {

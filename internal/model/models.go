@@ -25,10 +25,19 @@ type Supplier struct {
 	Name                string    `gorm:"size:128;not null" json:"name"`
 	ShortName           string    `gorm:"size:64" json:"shortName"`
 	Status              int8      `gorm:"default:1;not null" json:"status"`
-	BuyerName           string    `gorm:"size:64" json:"buyerName"`
-	CutOffTime          string    `gorm:"size:16;default:00:01" json:"cutOffTime"`
-	ArrivalDays         int       `json:"arrivalDays"`
-	PaymentDays         int       `json:"paymentDays"`
+	BuyerName           string     `gorm:"size:64" json:"buyerName"`
+	CutOffTime          string     `gorm:"size:16;default:00:01" json:"cutOffTime"`
+	ArrivalDays         int        `json:"arrivalDays"`
+	PaymentDays         int        `json:"paymentDays"`
+	// SettlementCycle: 空=不启用；day|week|month|custom（T+1：合并时刻处理上一完整周期）
+	SettlementCycle      string     `gorm:"size:16;default:''" json:"settlementCycle"`
+	SettlementCustomDays int        `gorm:"default:0" json:"settlementCustomDays"`
+	SettlementMergeTime  string     `gorm:"size:8;default:18:30" json:"settlementMergeTime"` // HH:mm 归档合并时刻（处理上一周期）
+	SettlementLastRunAt  *time.Time `json:"settlementLastRunAt,omitempty"`
+	// AutoCreateDropshipPO 开启后：同步时自动分配到该供应商会建代发采购单（不补历史；手工改分配不受此开关约束）
+	AutoCreateDropshipPO bool `gorm:"not null;default:false" json:"autoCreateDropshipPO"`
+	// SyncPurchasePriceFrom 合并时刻从订单备注同步采购价：空=关闭；fen_fa_remark|alloc_remark|seller_remark|printer_remark
+	SyncPurchasePriceFrom string `gorm:"size:32;default:''" json:"syncPurchasePriceFrom"`
 	ContactName         string    `gorm:"size:64" json:"contactName"`
 	Address             string    `gorm:"size:255" json:"address"`
 	OfficePhone         string    `gorm:"size:32" json:"officePhone"`
@@ -48,6 +57,14 @@ type Supplier struct {
 }
 
 func (Supplier) TableName() string { return "suppliers" }
+
+// 同步采购价来源字段（供应商 SyncPurchasePriceFrom）
+const (
+	SyncPurchasePriceFenFa   = "fen_fa_remark"
+	SyncPurchasePriceAlloc   = "alloc_remark"
+	SyncPurchasePriceSeller  = "seller_remark"
+	SyncPurchasePricePrinter = "printer_remark"
+)
 
 type SupplierAddress struct {
 	ID           uint64    `gorm:"primaryKey" json:"id"`
@@ -141,7 +158,7 @@ type PurchaseOrder struct {
 	ExpectedArrivalDate *time.Time `json:"expectedArrivalDate"`
 	WarehouseID         uint64     `json:"warehouseId"`
 	FulfillmentType     string     `gorm:"size:16;default:stock_in" json:"fulfillmentType"`
-	RefTraceID          string     `gorm:"size:64" json:"refTraceId"`
+	RefTraceID          string     `gorm:"type:text" json:"refTraceId"`
 	RefSoID             uint64     `json:"refSoId"`
 	BuyerID             uint64     `json:"buyerId"`
 	BuyerName           string     `gorm:"size:64" json:"buyerName"`
@@ -174,6 +191,9 @@ type PurchaseOrderItem struct {
 	LineAmount          float64    `gorm:"type:decimal(14,2);not null" json:"lineAmount"`                // 采购小计
 	ExpectedArrivalDate *time.Time `json:"expectedArrivalDate"`
 	ReceivedQty         int        `gorm:"default:0" json:"receivedQty"`
+	RefSoID             uint64     `gorm:"index;default:0" json:"refSoId"`     // 关联销售单 ID
+	RefOrderNo          string     `gorm:"size:64;index" json:"refOrderNo"`    // 关联销售单号
+	Cancelled           bool       `gorm:"default:false;index" json:"cancelled"` // 销售单撤回后代发明细作废
 	Remark              string     `gorm:"type:text" json:"remark"`
 	CreatedAt           time.Time  `json:"createdAt"`
 	UpdatedAt           time.Time  `json:"updatedAt"`

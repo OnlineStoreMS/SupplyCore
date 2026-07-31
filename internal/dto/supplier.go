@@ -15,11 +15,16 @@ type SupplierDTO struct {
 	Name                string `json:"name" binding:"required"`
 	ShortName           string `json:"shortName"`
 	Status              int8   `json:"status"`
-	BuyerName           string `json:"buyerName"`
-	CutOffTime          string `json:"cutOffTime"`
-	ArrivalDays         int    `json:"arrivalDays"`
-	PaymentDays         int    `json:"paymentDays"`
-	ContactName         string `json:"contactName"`
+	BuyerName            string `json:"buyerName"`
+	CutOffTime           string `json:"cutOffTime"`
+	ArrivalDays          int    `json:"arrivalDays"`
+	PaymentDays          int    `json:"paymentDays"`
+	SettlementCycle      string `json:"settlementCycle"`      // "" | day | week | month | custom
+	SettlementCustomDays int    `json:"settlementCustomDays"` // custom 时有效
+	SettlementMergeTime   string `json:"settlementMergeTime"`   // HH:mm，默认 18:30
+	AutoCreateDropshipPO  bool   `json:"autoCreateDropshipPO"`  // 自动创建代发采购单
+	SyncPurchasePriceFrom string `json:"syncPurchasePriceFrom"` // "" | fen_fa_remark | alloc_remark | seller_remark | printer_remark
+	ContactName           string `json:"contactName"`
 	Address             string `json:"address"`
 	OfficePhone         string `json:"officePhone"`
 	Mobile              string `json:"mobile"`

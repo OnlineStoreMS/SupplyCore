@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"supplycore/internal/integrations/ordercore"
@@ -33,4 +34,66 @@ func (h *OrderHandler) Search(c *gin.Context) {
 		return
 	}
 	response.OK(c, response.PageResult(list, total, page, pageSize))
+}
+
+func (h *OrderHandler) Get(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		response.Fail(c, http.StatusBadRequest, "无效订单 ID")
+		return
+	}
+	auth := c.GetHeader("Authorization")
+	order, err := h.oc.GetOrder(c.Request.Context(), auth, id)
+	if err != nil {
+		response.Fail(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	response.OK(c, order)
+}
+
+func (h *OrderHandler) Ship(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		response.Fail(c, http.StatusBadRequest, "无效订单 ID")
+		return
+	}
+	var req ordercore.ShipRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	if strings.TrimSpace(req.ExpressNo) == "" {
+		response.Fail(c, http.StatusBadRequest, "请填写物流单号")
+		return
+	}
+	if strings.TrimSpace(req.ExpressCompany) == "" {
+		response.Fail(c, http.StatusBadRequest, "请选择快递公司")
+		return
+	}
+	// 代发采购侧「回传单号」默认回传电商平台
+	req.Callback = true
+	auth := c.GetHeader("Authorization")
+	order, err := h.oc.ShipOrder(c.Request.Context(), auth, id, req)
+	if err != nil {
+		response.Fail(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	response.OK(c, order)
+}
+
+func (h *OrderHandler) Decrypt(c *gin.Context) {
+	var body struct {
+		OrderIDs []uint64 `json:"orderIds"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || len(body.OrderIDs) == 0 {
+		response.Fail(c, http.StatusBadRequest, "请传入 orderIds")
+		return
+	}
+	auth := c.GetHeader("Authorization")
+	result, err := h.oc.DecryptOrders(c.Request.Context(), auth, body.OrderIDs)
+	if err != nil {
+		response.Fail(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	response.OK(c, result)
 }

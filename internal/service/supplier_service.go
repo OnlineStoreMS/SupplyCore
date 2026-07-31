@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 
 	"supplycore/internal/dto"
 	"supplycore/internal/model"
@@ -421,6 +422,11 @@ func supplierFromDTO(in *dto.SupplierDTO) *model.Supplier {
 		Status: defaultStatus(in.Status), BuyerName: in.BuyerName,
 		CutOffTime: defaultCutOffTime(in.CutOffTime),
 		ArrivalDays: in.ArrivalDays, PaymentDays: in.PaymentDays,
+		SettlementCycle:      normalizeSettlementCycle(in.SettlementCycle),
+		SettlementCustomDays: normalizeSettlementCustomDays(normalizeSettlementCycle(in.SettlementCycle), in.SettlementCustomDays),
+		SettlementMergeTime:   defaultSettlementMergeTime(in.SettlementMergeTime),
+		AutoCreateDropshipPO:  in.AutoCreateDropshipPO,
+		SyncPurchasePriceFrom: normalizeSyncPurchasePriceFrom(in.SyncPurchasePriceFrom),
 		ContactName: in.ContactName, Address: in.Address,
 		OfficePhone: in.OfficePhone, Mobile: in.Mobile, Phone: in.Phone,
 		WangwangID: in.WangwangID, QQ: in.QQ, Email: in.Email,
@@ -442,6 +448,11 @@ func applySupplierDTO(item *model.Supplier, in *dto.SupplierDTO) {
 	item.CutOffTime = defaultCutOffTime(in.CutOffTime)
 	item.ArrivalDays = in.ArrivalDays
 	item.PaymentDays = in.PaymentDays
+	item.SettlementCycle = normalizeSettlementCycle(in.SettlementCycle)
+	item.SettlementCustomDays = normalizeSettlementCustomDays(item.SettlementCycle, in.SettlementCustomDays)
+	item.SettlementMergeTime = defaultSettlementMergeTime(in.SettlementMergeTime)
+	item.AutoCreateDropshipPO = in.AutoCreateDropshipPO
+	item.SyncPurchasePriceFrom = normalizeSyncPurchasePriceFrom(in.SyncPurchasePriceFrom)
 	item.ContactName = in.ContactName
 	item.Address = in.Address
 	item.OfficePhone = in.OfficePhone
@@ -478,6 +489,51 @@ func defaultCutOffTime(v string) string {
 		return "00:01"
 	}
 	return v
+}
+
+func defaultSettlementMergeTime(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "18:30"
+	}
+	return v
+}
+
+func normalizeSyncPurchasePriceFrom(v string) string {
+	switch strings.TrimSpace(strings.ToLower(v)) {
+	case model.SyncPurchasePriceFenFa, "fenfa", "fen_fa":
+		return model.SyncPurchasePriceFenFa
+	case model.SyncPurchasePriceAlloc, "alloc":
+		return model.SyncPurchasePriceAlloc
+	case model.SyncPurchasePriceSeller, "seller":
+		return model.SyncPurchasePriceSeller
+	case model.SyncPurchasePricePrinter, "printer":
+		return model.SyncPurchasePricePrinter
+	default:
+		return ""
+	}
+}
+
+func normalizeSettlementCycle(v string) string {
+	switch strings.TrimSpace(strings.ToLower(v)) {
+	case "day", "week", "month", "custom":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return ""
+	}
+}
+
+func normalizeSettlementCustomDays(cycle string, days int) int {
+	if cycle != "custom" {
+		return 0
+	}
+	if days < 1 {
+		return 1
+	}
+	if days > 365 {
+		return 365
+	}
+	return days
 }
 
 func defaultStatus(v int8) int8 {

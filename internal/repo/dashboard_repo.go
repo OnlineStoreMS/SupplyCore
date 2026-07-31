@@ -42,31 +42,72 @@ func (r *DashboardRepo) CountOffers(activeOnly bool) (int64, error) {
 }
 
 func (r *DashboardRepo) CountPOsByStatus(status string) (int64, error) {
-	var n int64
-	err := r.db.Model(&model.PurchaseOrder{}).
+	return r.CountPOsByStatusSince(status, nil)
+}
+
+func (r *DashboardRepo) CountPOsByStatusSince(status string, dayStart *time.Time) (int64, error) {
+	q := r.db.Model(&model.PurchaseOrder{}).
 		Scopes(scopeTenant(r.tenantID)).
-		Where("status = ?", status).
-		Count(&n).Error
+		Where("status = ?", status)
+	q = scopePOBusinessDay(q, dayStart)
+	var n int64
+	err := q.Count(&n).Error
 	return n, err
 }
 
 func (r *DashboardRepo) CountPOsByStatuses(statuses []string) (int64, error) {
-	var n int64
-	err := r.db.Model(&model.PurchaseOrder{}).
+	return r.CountPOsByStatusesSince(statuses, nil)
+}
+
+func (r *DashboardRepo) CountPOsByStatusesSince(statuses []string, dayStart *time.Time) (int64, error) {
+	q := r.db.Model(&model.PurchaseOrder{}).
 		Scopes(scopeTenant(r.tenantID)).
-		Where("status IN ?", statuses).
-		Count(&n).Error
+		Where("status IN ?", statuses)
+	q = scopePOBusinessDay(q, dayStart)
+	var n int64
+	err := q.Count(&n).Error
+	return n, err
+}
+
+func (r *DashboardRepo) CountPOsByFulfillment(fulfillmentType string, excludeDraftCancel bool) (int64, error) {
+	return r.CountPOsByFulfillmentSince(fulfillmentType, excludeDraftCancel, nil)
+}
+
+func (r *DashboardRepo) CountPOsByFulfillmentSince(fulfillmentType string, excludeDraftCancel bool, dayStart *time.Time) (int64, error) {
+	q := r.db.Model(&model.PurchaseOrder{}).
+		Scopes(scopeTenant(r.tenantID)).
+		Where("fulfillment_type = ?", fulfillmentType)
+	if excludeDraftCancel {
+		q = q.Where("status NOT IN ?", []string{"draft", "cancelled"})
+	}
+	q = scopePOBusinessDay(q, dayStart)
+	var n int64
+	err := q.Count(&n).Error
 	return n, err
 }
 
 func (r *DashboardRepo) CountUnpaidPOs() (int64, error) {
-	var n int64
-	err := r.db.Model(&model.PurchaseOrder{}).
+	return r.CountUnpaidPOsSince(nil)
+}
+
+func (r *DashboardRepo) CountUnpaidPOsSince(dayStart *time.Time) (int64, error) {
+	q := r.db.Model(&model.PurchaseOrder{}).
 		Scopes(scopeTenant(r.tenantID)).
 		Where("pay_status IN ?", []string{"unpaid", "partial"}).
-		Where("status NOT IN ?", []string{"draft", "cancelled"}).
-		Count(&n).Error
+		Where("status NOT IN ?", []string{"draft", "cancelled"})
+	q = scopePOBusinessDay(q, dayStart)
+	var n int64
+	err := q.Count(&n).Error
 	return n, err
+}
+
+// scopePOBusinessDay 按业务日筛选：COALESCE(ordered_at, created_at) 落在 [dayStart, dayStart+1)。
+func scopePOBusinessDay(q *gorm.DB, dayStart *time.Time) *gorm.DB {
+	if dayStart == nil {
+		return q
+	}
+	dayEnd := dayStart.AddDate(0, 0, 1)
+	return q.Where("COALESCE(ordered_at, created_at) >= ? AND COALESCE(ordered_at, created_at) < ?", *dayStart, dayEnd)
 }
 
 func (r *DashboardRepo) CountPOs() (int64, error) {
@@ -80,7 +121,7 @@ func (r *DashboardRepo) CountPOs() (int64, error) {
 func (r *DashboardRepo) CountPOsSince(since time.Time, excludeDraftCancel bool) (int64, error) {
 	q := r.db.Model(&model.PurchaseOrder{}).
 		Scopes(scopeTenant(r.tenantID)).
-		Where("created_at >= ?", since)
+		Where("COALESCE(ordered_at, created_at) >= ?", since)
 	if excludeDraftCancel {
 		q = q.Where("status NOT IN ?", []string{"draft", "cancelled"})
 	}
@@ -94,7 +135,7 @@ func (r *DashboardRepo) SumPOAmountSince(since time.Time) (float64, error) {
 	err := r.db.Model(&model.PurchaseOrder{}).
 		Scopes(scopeTenant(r.tenantID)).
 		Where("status NOT IN ?", []string{"draft", "cancelled"}).
-		Where("created_at >= ?", since).
+		Where("COALESCE(ordered_at, created_at) >= ?", since).
 		Select("COALESCE(SUM(total_amount), 0)").
 		Scan(&sum).Error
 	return sum, err
@@ -137,7 +178,7 @@ func (r *DashboardRepo) TopSuppliersSince(since time.Time, limit int) ([]Supplie
 	err := r.db.Model(&model.PurchaseOrder{}).
 		Scopes(scopeTenant(r.tenantID)).
 		Where("status NOT IN ?", []string{"draft", "cancelled"}).
-		Where("created_at >= ?", since).
+		Where("COALESCE(ordered_at, created_at) >= ?", since).
 		Select("supplier_id, COUNT(*) as order_count, COALESCE(SUM(total_amount), 0) as total_amount").
 		Group("supplier_id").
 		Order("total_amount DESC").
@@ -151,7 +192,7 @@ func (r *DashboardRepo) CountDistinctSuppliersSince(since time.Time) (int64, err
 	err := r.db.Model(&model.PurchaseOrder{}).
 		Scopes(scopeTenant(r.tenantID)).
 		Where("status NOT IN ?", []string{"draft", "cancelled"}).
-		Where("created_at >= ?", since).
+		Where("COALESCE(ordered_at, created_at) >= ?", since).
 		Select("COUNT(DISTINCT supplier_id)").
 		Scan(&n).Error
 	return n, err

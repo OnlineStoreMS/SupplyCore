@@ -21,15 +21,13 @@ const openMenus = computed(() => {
   return []
 })
 
-const logoText = computed(() => (collapsed.value ? 'SC' : 'SupplyCore'))
+const logoText = computed(() => (collapsed.value ? '供' : '供应链中心'))
 
 const activeMenu = computed(() => {
-  if (route.path.startsWith('/purchase-orders')) {
-    const ft = route.query.fulfillmentType
-    if (ft === 'dropship') return '/purchase-orders?fulfillmentType=dropship'
-    if (ft === 'stock_in') return '/purchase-orders?fulfillmentType=stock_in'
-    return '/purchase-orders'
-  }
+  if (route.path.startsWith('/purchase-orders/dropship')) return '/purchase-orders/dropship'
+  if (route.path.startsWith('/purchase-orders/stock-in')) return '/purchase-orders/stock-in'
+  if (route.path === '/purchase-orders') return '/purchase-orders'
+  if (route.path.startsWith('/purchase-orders')) return '/purchase-orders'
   return route.path
 })
 
@@ -76,16 +74,10 @@ function navigate(path: string) {
           <span>供应商订单</span>
         </template>
         <el-menu-item index="/purchase-orders" @click="navigate('/purchase-orders')">全部订单</el-menu-item>
-        <el-menu-item
-          index="/purchase-orders?fulfillmentType=dropship"
-          @click="navigate('/purchase-orders?fulfillmentType=dropship')"
-        >
+        <el-menu-item index="/purchase-orders/dropship" @click="navigate('/purchase-orders/dropship')">
           代发订单
         </el-menu-item>
-        <el-menu-item
-          index="/purchase-orders?fulfillmentType=stock_in"
-          @click="navigate('/purchase-orders?fulfillmentType=stock_in')"
-        >
+        <el-menu-item index="/purchase-orders/stock-in" @click="navigate('/purchase-orders/stock-in')">
           采购订单
         </el-menu-item>
       </el-sub-menu>

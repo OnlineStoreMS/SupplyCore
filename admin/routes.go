@@ -6,6 +6,9 @@ func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *Offe
 	g.GET("/dashboard/stats", dashH.Stats)
 
 	g.GET("/orders/search", orderH.Search)
+	g.POST("/orders/decrypt", orderH.Decrypt)
+	g.GET("/orders/:id", orderH.Get)
+	g.POST("/orders/:id/ship", orderH.Ship)
 
 	g.GET("/supplier-categories", supplierH.ListCategories)
 	g.POST("/supplier-categories", supplierH.CreateCategory)
@@ -50,8 +53,12 @@ func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *Offe
 
 	g.GET("/purchase-orders", poH.List)
 	g.POST("/purchase-orders", poH.Create)
+	g.POST("/purchase-orders/merge", poH.Merge)
+	g.POST("/purchase-orders/detach-sales-order", poH.DetachSalesOrder)
 	g.GET("/purchase-orders/:id", poH.Get)
 	g.PUT("/purchase-orders/:id", poH.Update)
+	g.PUT("/purchase-orders/:id/item-prices", poH.UpdateItemPrices)
+	g.POST("/purchase-orders/:id/sync-purchase-prices", poH.SyncPurchasePrices)
 	g.DELETE("/purchase-orders/:id", poH.Delete)
 	g.POST("/purchase-orders/:id/submit", poH.Submit)
 	g.POST("/purchase-orders/:id/mark-paid", poH.MarkPaid)
@@ -62,6 +69,7 @@ func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *Offe
 
 	g.GET("/purchase-orders/:id/shipments", trackH.ListShipments)
 	g.POST("/purchase-orders/:id/shipments", trackH.CreateShipment)
+	g.POST("/purchase-orders/:id/shipments/sync-from-orders", trackH.SyncShipmentsFromOrders)
 	g.PATCH("/purchase-orders/:id/shipments/:shipmentId/status", trackH.UpdateShipmentStatus)
 	g.DELETE("/purchase-orders/:id/shipments/:shipmentId", trackH.DeleteShipment)
 

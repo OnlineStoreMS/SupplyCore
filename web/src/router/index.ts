@@ -6,6 +6,12 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
+      path: '/m/photo-upload',
+      name: 'MobilePhotoUpload',
+      component: () => import('../views/MobilePhotoUpload.vue'),
+      meta: { public: true },
+    },
+    {
       path: '/auth/callback',
       name: 'AuthCallback',
       component: () => import('../views/AuthCallback.vue'),
@@ -26,10 +32,22 @@ const router = createRouter({
         { path: 'suppliers', name: 'SupplierList', component: () => import('../views/supplier/SupplierList.vue'), meta: { title: '供应商信息' } },
         { path: 'suppliers/:id', name: 'SupplierDetail', component: () => import('../views/supplier/SupplierDetail.vue'), meta: { title: '供应商详情' } },
         { path: 'sku-offers', name: 'OfferList', component: () => import('../views/offer/OfferList.vue'), meta: { title: 'SKU 供货报价' } },
+        {
+          path: 'purchase-orders/dropship',
+          name: 'DropshipOrderList',
+          component: () => import('../views/purchase/PurchaseOrderList.vue'),
+          meta: { title: '代发订单', fulfillmentType: 'dropship' },
+        },
+        {
+          path: 'purchase-orders/stock-in',
+          name: 'StockInOrderList',
+          component: () => import('../views/purchase/PurchaseOrderList.vue'),
+          meta: { title: '采购订单', fulfillmentType: 'stock_in' },
+        },
         { path: 'purchase-orders', name: 'PurchaseOrderList', component: () => import('../views/purchase/PurchaseOrderList.vue'), meta: { title: '供应商订单' } },
         { path: 'purchase-orders/create', name: 'PurchaseOrderCreate', component: () => import('../views/purchase/PurchaseOrderForm.vue'), meta: { title: '新建供应商订单' } },
-        { path: 'purchase-orders/:id/edit', name: 'PurchaseOrderEdit', component: () => import('../views/purchase/PurchaseOrderForm.vue'), meta: { title: '编辑供应商订单' } },
-        { path: 'purchase-orders/:id', name: 'PurchaseOrderDetail', component: () => import('../views/purchase/PurchaseOrderDetail.vue'), meta: { title: '供应商订单详情' } },
+        { path: 'purchase-orders/:id(\\d+)/edit', name: 'PurchaseOrderEdit', component: () => import('../views/purchase/PurchaseOrderForm.vue'), meta: { title: '编辑供应商订单' } },
+        { path: 'purchase-orders/:id(\\d+)', name: 'PurchaseOrderDetail', component: () => import('../views/purchase/PurchaseOrderDetail.vue'), meta: { title: '供应商订单详情' } },
         { path: 'purchase-accounts', name: 'PurchaseAccounts', component: () => import('../views/account/PurchaseAccountList.vue'), meta: { title: '采购账号' } },
         { path: 'purchase-inbounds', name: 'InboundList', component: () => import('../views/inbound/InboundList.vue'), meta: { title: '采购入库单' } },
         { path: 'purchase-inbounds/create', name: 'InboundCreate', component: () => import('../views/inbound/InboundForm.vue'), meta: { title: '新增采购入库单' } },

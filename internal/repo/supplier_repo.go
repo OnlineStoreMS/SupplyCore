@@ -1,6 +1,8 @@
 package repo
 
 import (
+	"time"
+
 	"supplycore/internal/model"
 
 	"gorm.io/gorm"
@@ -36,6 +38,19 @@ func (r *SupplierRepo) List(keyword string, categoryID uint64, page, pageSize in
 	offset := (page - 1) * pageSize
 	err := q.Order("id DESC").Offset(offset).Limit(pageSize).Find(&list).Error
 	return list, total, err
+}
+
+// ListWithSettlementCycle 已配置结算周期的供应商（跨租户，供调度器用）。
+func (r *SupplierRepo) ListWithSettlementCycle() ([]model.Supplier, error) {
+	var list []model.Supplier
+	err := r.db.Where("settlement_cycle IN ?", []string{"day", "week", "month", "custom"}).
+		Order("tenant_id ASC, id ASC").
+		Find(&list).Error
+	return list, err
+}
+
+func (r *SupplierRepo) UpdateSettlementLastRunAt(id uint64, at time.Time) error {
+	return r.db.Model(&model.Supplier{}).Where("id = ?", id).Update("settlement_last_run_at", at).Error
 }
 
 func (r *SupplierRepo) GetByID(id uint64) (*model.Supplier, error) {

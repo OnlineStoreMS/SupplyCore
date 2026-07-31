@@ -20,12 +20,26 @@ import {
   supplierMobile,
   ACCOUNT_TYPE_MAP,
   PAY_TYPE_MAP,
+  SETTLEMENT_CYCLE_MAP,
   type Supplier,
   type SupplierAddress,
   type SupplierPaymentAccount,
   type SupplierPaymentQR,
 } from '../../api/supplier'
 import { uploadFile } from '../../api/poTracking'
+
+const SYNC_PURCHASE_PRICE_MAP: Record<string, string> = {
+  fen_fa_remark: '分发备注',
+  alloc_remark: '分配备注',
+  seller_remark: '卖家备注',
+  printer_remark: '打单备注',
+}
+
+function syncPurchasePriceLabel(v?: string) {
+  const key = (v || '').trim()
+  if (!key) return '未开启'
+  return SYNC_PURCHASE_PRICE_MAP[key] || key
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -245,6 +259,22 @@ async function handleDeleteQR(row: SupplierPaymentQR) {
         </el-descriptions-item>
         <el-descriptions-item label="采购员">{{ supplier.buyerName || '—' }}</el-descriptions-item>
         <el-descriptions-item label="截单时间">{{ supplier.cutOffTime || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="结算周期">
+          <template v-if="supplier.settlementCycle">
+            {{ SETTLEMENT_CYCLE_MAP[supplier.settlementCycle] || supplier.settlementCycle }}
+            <span v-if="supplier.settlementCycle === 'custom'">（{{ supplier.settlementCustomDays }} 天）</span>
+            ，合并时刻 {{ supplier.settlementMergeTime || '18:30' }}（T+1）
+          </template>
+          <template v-else>—</template>
+        </el-descriptions-item>
+        <el-descriptions-item label="自动建代发单">
+          <el-tag :type="supplier.autoCreateDropshipPO ? 'success' : 'info'" size="small">
+            {{ supplier.autoCreateDropshipPO ? '已开启' : '未开启' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="同步采购价">
+          {{ syncPurchasePriceLabel(supplier.syncPurchasePriceFrom) }}
+        </el-descriptions-item>
         <el-descriptions-item label="到货天数">{{ supplier.arrivalDays ? `${supplier.arrivalDays} 天` : '—' }}</el-descriptions-item>
         <el-descriptions-item label="账期天数">{{ supplier.paymentDays ? `${supplier.paymentDays} 天` : '—' }}</el-descriptions-item>
         <el-descriptions-item label="联系人">{{ supplier.contactName || '—' }}</el-descriptions-item>

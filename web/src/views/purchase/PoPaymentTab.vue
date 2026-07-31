@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Delete, Upload } from '@element-plus/icons-vue'
-import type { UploadFile } from 'element-plus'
+import { Plus, Delete } from '@element-plus/icons-vue'
 import type { PurchaseOrder } from '../../api/purchase'
 import {
   fetchPayments,
@@ -11,10 +10,10 @@ import {
   fetchAttachments,
   createAttachment,
   deleteAttachment,
-  uploadFile as uploadPoFile,
   type Payment,
   type Attachment,
 } from '../../api/poTracking'
+import ScanImageUpload from '../../components/ScanImageUpload.vue'
 
 const props = defineProps<{ poId: number; po: PurchaseOrder; readonly: boolean }>()
 const emit = defineEmits<{ refresh: [] }>()
@@ -32,8 +31,7 @@ const form = ref({
   payeeName: '',
   remark: '',
 })
-const pendingFiles = ref<File[]>([])
-const fileList = ref<UploadFile[]>([])
+const pendingShotUrls = ref<string[]>([])
 
 const paidSum = computed(() =>
   list.value.filter((p) => p.payStatus === 'paid').reduce((s, p) => s + p.payAmount, 0),
@@ -51,6 +49,16 @@ const screenshotsByPayment = computed(() => {
   }
   return map
 })
+
+function fileNameFromUrl(url: string) {
+  try {
+    const path = url.split('?')[0]
+    const name = path.split('/').pop() || ''
+    return decodeURIComponent(name) || '付款截图.jpg'
+  } catch {
+    return '付款截图.jpg'
+  }
+}
 
 async function loadData() {
   loading.value = true
@@ -79,19 +87,8 @@ function openCreate() {
     payeeName: '',
     remark: '',
   }
-  pendingFiles.value = []
-  fileList.value = []
+  pendingShotUrls.value = []
   dialogVisible.value = true
-}
-
-function onFileChange(_file: UploadFile, files: UploadFile[]) {
-  fileList.value = files
-  pendingFiles.value = files.flatMap((f) => (f.raw ? [f.raw as File] : []))
-}
-
-function onFileRemove(_file: UploadFile, files: UploadFile[]) {
-  fileList.value = files
-  pendingFiles.value = files.flatMap((f) => (f.raw ? [f.raw as File] : []))
 }
 
 async function handleSave() {
@@ -113,12 +110,11 @@ async function handleSave() {
   saving.value = true
   try {
     const payment = await createPayment(props.poId, { ...form.value, payStatus: 'paid' })
-    for (const file of pendingFiles.value) {
-      const result = await uploadPoFile(file)
+    for (const url of pendingShotUrls.value) {
       await createAttachment(props.poId, {
         fileType: 'payment_screenshot',
-        fileName: result.fileName,
-        fileUrl: result.url,
+        fileName: fileNameFromUrl(url),
+        fileUrl: url,
         paymentId: payment.id,
         remark: '付款截图',
       })
@@ -246,16 +242,12 @@ function payStatusLabel(status: string) {
           </el-select>
         </el-form-item>
         <el-form-item label="付款截图">
-          <el-upload
-            v-model:file-list="fileList"
-            :auto-upload="false"
-            list-type="picture-card"
-            accept="image/*"
-            :on-change="onFileChange"
-            :on-remove="onFileRemove"
-          >
-            <el-icon><Upload /></el-icon>
-          </el-upload>
+          <ScanImageUpload
+            v-model="pendingShotUrls"
+            subdir="po/payments"
+            tip="本机上传"
+            scan-title="手机扫码上传付款截图"
+          />
         </el-form-item>
         <el-form-item label="打款账号">
           <el-input v-model="form.payAccount" />

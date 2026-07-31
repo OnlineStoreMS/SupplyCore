@@ -30,7 +30,7 @@ function logout() {
 }
 
 const breadcrumbs = computed(() => {
-  const title = (route.meta.title as string) || 'SupplyCore'
+  const title = (route.meta.title as string) || '供应链中心'
   if (route.path.startsWith('/suggestions')) return ['采购建议', title]
   if (route.path.startsWith('/purchase-accounts')) return ['采购', '采购账号']
   if (route.path.startsWith('/package-receives')) return ['收包入库', '收货记录']

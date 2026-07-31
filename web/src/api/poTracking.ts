@@ -44,6 +44,7 @@ export interface Attachment {
   id: number
   poId: number
   paymentId?: number
+  shipmentId?: number
   fileType: string
   fileName: string
   fileUrl: string
@@ -63,6 +64,7 @@ export const SHIPMENT_STATUS_MAP: Record<string, string> = {
 export const ATTACHMENT_TYPE_MAP: Record<string, string> = {
   supplier_sales_order: '供货商销售单',
   payment_screenshot: '付款截图',
+  shipment_photo: '物流发货照片',
   contract: '合同',
   other: '其他',
 }
@@ -73,6 +75,12 @@ export async function fetchShipments(poId: number) {
 
 export async function createShipment(poId: number, data: Partial<Shipment> & { items?: ShipmentItem[] }) {
   return unwrap<Shipment>(await client.post(`/purchase-orders/${poId}/shipments`, data))
+}
+
+export async function syncShipmentsFromOrders(poId: number, refSoId?: number) {
+  return unwrap<{ created: number; updated: number; skipped: number; errors?: string[] }>(
+    await client.post(`/purchase-orders/${poId}/shipments/sync-from-orders`, refSoId ? { refSoId } : {}),
+  )
 }
 
 export async function updateShipmentStatus(poId: number, shipmentId: number, status: string) {
@@ -104,6 +112,7 @@ export async function createAttachment(poId: number, data: {
   fileName: string
   fileUrl: string
   paymentId?: number
+  shipmentId?: number
   remark?: string
 }) {
   return unwrap<Attachment>(await client.post(`/purchase-orders/${poId}/attachments`, data))

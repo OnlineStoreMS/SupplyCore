@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus, Edit, Delete, Search, Setting } from '@element-plus/icons-vue'
+import { Plus, Edit, Delete, Search, Setting, WarningFilled } from '@element-plus/icons-vue'
 import {
   createSupplier,
   createSupplierCategory,
@@ -10,6 +10,7 @@ import {
   deleteSupplierCategory,
   fetchSupplierCategories,
   fetchSuppliers,
+  SETTLEMENT_CYCLE_MAP,
   supplierMobile,
   updateSupplier,
   updateSupplierCategory,
@@ -42,6 +43,11 @@ function defaultSupplier(): Partial<Supplier> {
     name: '',
     status: 1,
     cutOffTime: '00:01',
+    settlementCycle: '',
+    settlementCustomDays: 7,
+    settlementMergeTime: '18:30',
+    autoCreateDropshipPO: false,
+    syncPurchasePriceFrom: '',
     categoryId: selectedCategoryId.value || undefined,
   }
 }
@@ -93,6 +99,11 @@ function handleEdit(row: Supplier) {
     ...row,
     mobile: row.mobile || row.phone,
     cutOffTime: row.cutOffTime || '00:01',
+    settlementCycle: row.settlementCycle || '',
+    settlementCustomDays: row.settlementCustomDays || 7,
+    settlementMergeTime: row.settlementMergeTime || '18:30',
+    autoCreateDropshipPO: !!row.autoCreateDropshipPO,
+    syncPurchasePriceFrom: row.syncPurchasePriceFrom || '',
   }
   dialogVisible.value = true
 }
@@ -248,6 +259,16 @@ async function handleDeleteCategory(row: SupplierCategory) {
           <el-table-column prop="cutOffTime" label="截单时间" width="90" align="center">
             <template #default="{ row }">{{ row.cutOffTime || '—' }}</template>
           </el-table-column>
+          <el-table-column label="结算周期" width="120" align="center">
+            <template #default="{ row }">
+              <template v-if="row.settlementCycle">
+                {{ SETTLEMENT_CYCLE_MAP[row.settlementCycle] || row.settlementCycle }}
+                <span v-if="row.settlementCycle === 'custom'">{{ row.settlementCustomDays }}天</span>
+                <div class="muted">{{ row.settlementMergeTime || '18:30' }}</div>
+              </template>
+              <span v-else>—</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip>
             <template #default="{ row }">{{ row.remark || '—' }}</template>
           </el-table-column>
@@ -288,7 +309,7 @@ async function handleDeleteCategory(row: SupplierCategory) {
       :title="editing.id ? '编辑供应商' : '增加供应商'"
       width="720px"
     >
-      <el-form :model="editing" label-width="80px">
+      <el-form :model="editing" label-width="130px">
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="类别">
@@ -320,7 +341,13 @@ async function handleDeleteCategory(row: SupplierCategory) {
           </el-col>
           <el-col :span="12">
             <el-form-item label="截单时间">
-              <el-input v-model="editing.cutOffTime" placeholder="HH:mm" />
+              <el-time-picker
+                v-model="editing.cutOffTime"
+                format="HH:mm"
+                value-format="HH:mm"
+                placeholder="选择时间"
+                style="width: 100%"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -331,6 +358,79 @@ async function handleDeleteCategory(row: SupplierCategory) {
           <el-col :span="12">
             <el-form-item label="账期天数">
               <el-input-number v-model="editing.paymentDays" :min="0" controls-position="right" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="结算周期">
+              <el-select v-model="editing.settlementCycle" clearable placeholder="不启用" style="width: 100%">
+                <el-option label="不启用" value="" />
+                <el-option label="按天" value="day" />
+                <el-option label="按周" value="week" />
+                <el-option label="按月" value="month" />
+                <el-option label="自定义天数" value="custom" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col v-if="editing.settlementCycle === 'custom'" :span="12">
+            <el-form-item label="自定义天数">
+              <el-input-number v-model="editing.settlementCustomDays" :min="1" :max="365" controls-position="right" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col v-if="editing.settlementCycle" :span="12">
+            <el-form-item label="合并时刻">
+              <el-time-picker
+                v-model="editing.settlementMergeTime"
+                format="HH:mm"
+                value-format="HH:mm"
+                placeholder="选择时间"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="24">
+            <el-form-item label="自动建代发单">
+              <div class="auto-po-field">
+                <el-switch v-model="editing.autoCreateDropshipPO" />
+                <el-tooltip placement="top" :show-after="200" effect="dark" popper-class="auto-po-tip">
+                  <template #content>
+                    <div class="tip-body">
+                      开启后：仅在订单同步时，自动分配到该供应商的订单会创建代发采购单。
+                      同一批同步中多个订单会合并为一张；不会补建历史已分配但缺单的订单。
+                      手工在订单中心改分配为代发时始终建单，不受此开关影响。
+                      若同时设置了结算周期，日常逐单产生的代发单会在合并时刻按 T+1 归档合并（按天=合并昨天的单；按周/月=合并上一完整周/月）。
+                    </div>
+                  </template>
+                  <el-icon class="tip-icon"><WarningFilled /></el-icon>
+                </el-tooltip>
+              </div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="24">
+            <el-form-item label="同步采购价">
+              <div class="auto-po-field">
+                <el-select
+                  v-model="editing.syncPurchasePriceFrom"
+                  clearable
+                  placeholder="不启用"
+                  style="width: 220px"
+                >
+                  <el-option label="不启用" value="" />
+                  <el-option label="分发备注" value="fen_fa_remark" />
+                  <el-option label="分配备注" value="alloc_remark" />
+                  <el-option label="卖家备注" value="seller_remark" />
+                  <el-option label="打单备注" value="printer_remark" />
+                </el-select>
+                <el-tooltip placement="top" :show-after="200" effect="dark" popper-class="auto-po-tip">
+                  <template #content>
+                    <div class="tip-body">
+                      选择备注字段后：合并时刻（及手工合并代发单后）会从该字段解析金额（如「70」），
+                      同步为对应销售单的采购小计，并按数量反推采购单价。建代发单时也会预填。
+                      需配合结算周期与合并时刻使用。
+                    </div>
+                  </template>
+                  <el-icon class="tip-icon"><WarningFilled /></el-icon>
+                </el-tooltip>
+              </div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -533,5 +633,37 @@ async function handleDeleteCategory(row: SupplierCategory) {
 }
 .category-toolbar {
   margin-bottom: 12px;
+}
+.muted {
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.auto-po-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tip-icon {
+  color: #c0c4cc;
+  cursor: pointer;
+  font-size: 14px;
+  outline: none;
+}
+
+.tip-icon:hover {
+  color: #909399;
+}
+</style>
+
+<style>
+.auto-po-tip {
+  max-width: 360px;
+}
+
+.auto-po-tip .tip-body {
+  line-height: 1.6;
+  font-size: 12px;
 }
 </style>

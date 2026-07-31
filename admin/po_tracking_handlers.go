@@ -3,6 +3,7 @@ package admin
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"supplycore/internal/dto"
 	"supplycore/internal/pkg/authcontext"
@@ -62,6 +63,34 @@ func (h *POTrackingHandler) CreateShipment(c *gin.Context) {
 		return
 	}
 	response.Created(c, item)
+}
+
+func (h *POTrackingHandler) SyncShipmentsFromOrders(c *gin.Context) {
+	poID, err := parsePOID(c)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "invalid po id")
+		return
+	}
+	var in dto.SyncShipmentsFromOrdersInput
+	_ = c.ShouldBindJSON(&in)
+	if v := c.Query("refSoId"); v != "" {
+		if id, perr := strconv.ParseUint(v, 10, 64); perr == nil {
+			in.RefSoID = id
+		}
+	}
+	auth := c.GetHeader("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		tok := authcontext.BearerToken(c)
+		if tok != "" {
+			auth = "Bearer " + tok
+		}
+	}
+	result, err := h.ts(c).SyncShipmentsFromOrders(c.Request.Context(), poID, auth, &in)
+	if err != nil {
+		httputil.HandleServiceError(c, err)
+		return
+	}
+	response.OK(c, result)
 }
 
 func (h *POTrackingHandler) UpdateShipmentStatus(c *gin.Context) {
@@ -242,7 +271,11 @@ func (h *POTrackingHandler) Upload(c *gin.Context) {
 		response.Fail(c, http.StatusBadRequest, "请选择文件")
 		return
 	}
-	url, err := h.storage.Upload(file, "po")
+	subdir := strings.Trim(c.PostForm("subdir"), "/")
+	if subdir == "" {
+		subdir = "po"
+	}
+	url, err := h.storage.Upload(file, subdir)
 	if err != nil {
 		response.Fail(c, http.StatusInternalServerError, err.Error())
 		return

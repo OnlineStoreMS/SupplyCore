@@ -21,6 +21,12 @@ export interface Supplier {
   cutOffTime?: string
   arrivalDays?: number
   paymentDays?: number
+  settlementCycle?: string
+  settlementCustomDays?: number
+  settlementMergeTime?: string
+  autoCreateDropshipPO?: boolean
+  /** 同步采购价来源：fen_fa_remark | alloc_remark | seller_remark | printer_remark */
+  syncPurchasePriceFrom?: string
   contactName?: string
   address?: string
   officePhone?: string
@@ -36,6 +42,14 @@ export interface Supplier {
   bankAccount?: string
   accountName?: string
   createdAt?: string
+}
+
+export const SETTLEMENT_CYCLE_MAP: Record<string, string> = {
+  '': '不启用',
+  day: '按天',
+  week: '按周',
+  month: '按月',
+  custom: '自定义天数',
 }
 
 export interface SupplierAddress {

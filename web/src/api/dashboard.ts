@@ -2,6 +2,8 @@ import client, { unwrap } from './client'
 import type { PurchaseOrderListItem } from './purchase'
 
 export interface DashboardWorkbench {
+  dropshipPO: number
+  stockInPO: number
   draftPO: number
   orderedPO: number
   unpaidPO: number

@@ -3,17 +3,18 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  Document, Money, Van, Box, OfficeBuilding, PriceTag,
-  ShoppingCart, TrendCharts, Coin, Calendar,
+  OfficeBuilding, PriceTag, TrendCharts, Calendar,
 } from '@element-plus/icons-vue'
 import { fetchDashboardStats, type DashboardStats } from '../api/dashboard'
 import { PO_STATUS_MAP, PAY_STATUS_MAP } from '../api/purchase'
+import { goPurchaseOrders } from '../utils/poListIntent'
 
 const router = useRouter()
 const loading = ref(false)
 const stats = ref<DashboardStats | null>(null)
 
 const emptyWorkbench = {
+  dropshipPO: 0, stockInPO: 0,
   draftPO: 0, orderedPO: 0, unpaidPO: 0,
   inTransitPO: 0, partialReceivedPO: 0, activeOffers: 0,
 }
@@ -31,49 +32,82 @@ const cost = computed(() => stats.value?.cost ?? emptyCost)
 
 const workCards = computed(() => [
   {
+    key: 'dropship',
+    label: '代发订单',
+    tip: '今日代发 · 点击查看',
+    value: wb.value.dropshipPO,
+    color: '#d48806',
+    highlight: true,
+    go: () => goPurchaseOrders(router, {
+      fulfillmentType: 'dropship',
+      today: true,
+      excludeStatuses: ['draft', 'cancelled'],
+    }),
+  },
+  {
+    key: 'stock_in',
+    label: '采购订单',
+    tip: '今日采购入仓',
+    value: wb.value.stockInPO,
+    color: '#1677ff',
+    highlight: false,
+    go: () => goPurchaseOrders(router, {
+      fulfillmentType: 'stock_in',
+      today: true,
+      excludeStatuses: ['draft', 'cancelled'],
+    }),
+  },
+  {
     key: 'draft',
     label: '草稿待提交',
-    tip: '供应商订单草稿',
+    tip: '今日草稿',
     value: wb.value.draftPO,
-    color: '#909399',
-    icon: Document,
-    go: () => router.push({ path: '/purchase-orders', query: { status: 'draft' } }),
+    color: '#64748b',
+    highlight: false,
+    go: () => goPurchaseOrders(router, { status: 'draft', today: true }),
   },
   {
     key: 'ordered',
     label: '已下单',
-    tip: '待推进付款/发货',
+    tip: '今日已下单待推进',
     value: wb.value.orderedPO,
     color: '#409eff',
-    icon: ShoppingCart,
-    go: () => router.push({ path: '/purchase-orders', query: { status: 'ordered' } }),
+    highlight: false,
+    go: () => goPurchaseOrders(router, { status: 'ordered', today: true }),
   },
   {
     key: 'unpaid',
     label: '待付款',
-    tip: '未付/部分付款',
+    tip: '今日未付 / 部分付款',
     value: wb.value.unpaidPO,
     color: '#e6a23c',
-    icon: Money,
-    go: () => router.push({ path: '/purchase-orders' }),
+    highlight: true,
+    go: () => goPurchaseOrders(router, {
+      today: true,
+      payStatuses: ['unpaid', 'partial'],
+      excludeStatuses: ['draft', 'cancelled'],
+    }),
   },
   {
     key: 'transit',
     label: '在途采购',
-    tip: '部分发货/运输中',
+    tip: '今日部分发货 / 运输中',
     value: wb.value.inTransitPO,
     color: '#0f766e',
-    icon: Van,
-    go: () => router.push({ path: '/purchase-orders', query: { status: 'in_transit' } }),
+    highlight: false,
+    go: () => goPurchaseOrders(router, {
+      today: true,
+      statuses: ['partial_shipped', 'in_transit'],
+    }),
   },
   {
     key: 'partial',
     label: '部分到货',
-    tip: '待继续收货',
+    tip: '今日待继续收货',
     value: wb.value.partialReceivedPO,
     color: '#722ed1',
-    icon: Box,
-    go: () => router.push({ path: '/purchase-orders', query: { status: 'partial_received' } }),
+    highlight: false,
+    go: () => goPurchaseOrders(router, { status: 'partial_received', today: true }),
   },
   {
     key: 'offers',
@@ -81,8 +115,35 @@ const workCards = computed(() => [
     tip: 'SKU 供货报价',
     value: wb.value.activeOffers,
     color: '#67c23a',
-    icon: PriceTag,
+    highlight: false,
     go: () => router.push('/sku-offers'),
+  },
+])
+
+const costCards = computed(() => [
+  {
+    label: '今日采购额',
+    value: cost.value.todayAmount,
+    tip: '今日业务日采购金额',
+    highlight: true,
+  },
+  {
+    label: '近7日采购额',
+    value: cost.value.weekAmount,
+    tip: '近 7 日累计',
+    highlight: false,
+  },
+  {
+    label: '本月采购额',
+    value: cost.value.monthAmount,
+    tip: `本年累计 ¥${fmtMoney(cost.value.yearAmount)}`,
+    highlight: false,
+  },
+  {
+    label: '待付金额',
+    value: cost.value.unpaidAmount,
+    tip: '未付 / 部分付款合计',
+    highlight: false,
   },
 ])
 
@@ -98,13 +159,6 @@ const poCards = computed(() => [
   { label: '今日新单', value: po.value.todayCount, sub: `近7日 ${po.value.weekCount}` },
   { label: '本月订单', value: po.value.monthCount, sub: `已完成 ${po.value.completed}` },
   { label: '草稿 / 取消', value: po.value.draft, sub: `已取消 ${po.value.cancelled}` },
-])
-
-const costCards = computed(() => [
-  { label: '今日采购额', value: cost.value.todayAmount, color: '#1677ff' },
-  { label: '近7日采购额', value: cost.value.weekAmount, color: '#13c2c2' },
-  { label: '本月采购额', value: cost.value.monthAmount, color: '#0f766e' },
-  { label: '待付金额', value: cost.value.unpaidAmount, color: '#e6a23c' },
 ])
 
 async function load() {
@@ -144,43 +198,36 @@ function goSupplier(id: number) {
 
 <template>
   <div v-loading="loading" class="dashboard">
-    <section>
-      <div class="section-title">工作场景</div>
-      <el-row :gutter="16">
-        <el-col v-for="card in workCards" :key="card.key" :xs="12" :sm="8" :lg="4">
-          <el-card shadow="hover" class="work-card" @click="card.go()">
-            <div class="work-inner">
-              <div>
-                <div class="work-label">{{ card.label }}</div>
-                <div class="work-value" :style="{ color: card.color }">{{ card.value }}</div>
-                <div class="work-tip">{{ card.tip }}</div>
-              </div>
-              <div class="work-icon" :style="{ background: card.color + '18', color: card.color }">
-                <el-icon :size="22"><component :is="card.icon" /></el-icon>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-      </el-row>
-    </section>
+    <div class="section-head">工作场景 · 今日</div>
+    <div class="work-cards">
+      <button
+        v-for="card in workCards"
+        :key="card.key"
+        type="button"
+        class="work-card"
+        :class="{ highlight: card.highlight && card.value > 0 }"
+        :style="{ '--accent': card.color }"
+        @click="card.go()"
+      >
+        <div class="work-label">{{ card.label }}</div>
+        <div class="work-value">{{ card.value }}</div>
+        <div class="work-tip">{{ card.tip }}</div>
+      </button>
+    </div>
 
-    <section>
-      <div class="section-title">采购成本统计</div>
-      <el-row :gutter="16">
-        <el-col v-for="card in costCards" :key="card.label" :xs="12" :sm="12" :lg="6">
-          <el-card shadow="hover" class="metric-card">
-            <div class="metric-label">
-              <el-icon :style="{ color: card.color }"><Coin /></el-icon>
-              {{ card.label }}
-            </div>
-            <div class="metric-value">¥{{ fmtMoney(card.value) }}</div>
-            <div v-if="card.label === '本月采购额'" class="metric-sub">
-              本年累计 ¥{{ fmtMoney(cost.yearAmount) }}
-            </div>
-          </el-card>
-        </el-col>
-      </el-row>
-    </section>
+    <div class="section-head">采购成本统计</div>
+    <div class="metric-row">
+      <div
+        v-for="card in costCards"
+        :key="card.label"
+        class="metric-card"
+        :class="{ highlight: card.highlight }"
+      >
+        <div class="metric-label">{{ card.label }}</div>
+        <div class="metric-value">¥{{ fmtMoney(card.value) }}</div>
+        <div class="metric-tip">{{ card.tip }}</div>
+      </div>
+    </div>
 
     <el-row :gutter="16">
       <el-col :xs="24" :lg="12">
@@ -298,82 +345,99 @@ function goSupplier(id: number) {
 .dashboard {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
 }
-.section-title {
-  font-size: 15px;
+.section-head {
+  font-size: 13px;
   font-weight: 600;
-  color: #303133;
-  margin-bottom: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.work-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
 }
 .work-card {
+  text-align: left;
+  border: 1px solid #e8edf3;
+  background: #fff;
+  border-radius: 10px;
+  padding: 14px 16px;
   cursor: pointer;
-  margin-bottom: 12px;
+  border-top: 3px solid var(--accent, #1677ff);
+  transition: box-shadow 0.15s, border-color 0.15s, transform 0.15s;
 }
-.work-card :deep(.el-card__body) {
-  padding: 16px;
+.work-card:hover {
+  box-shadow: 0 4px 14px rgba(15, 39, 68, 0.08);
+  transform: translateY(-1px);
 }
-.work-inner {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 8px;
+.work-card.highlight {
+  border-color: color-mix(in srgb, var(--accent) 35%, #e8edf3);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, #fff) 0%, #fff 65%);
 }
 .work-label {
   font-size: 13px;
-  color: #606266;
-  margin-bottom: 6px;
+  color: #64748b;
 }
 .work-value {
-  font-size: 26px;
+  margin-top: 6px;
+  font-size: 28px;
   font-weight: 700;
-  line-height: 1.2;
+  color: #0f172a;
+  line-height: 1.1;
 }
 .work-tip {
-  margin-top: 4px;
-  font-size: 12px;
-  color: #909399;
-}
-.work-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.metric-card :deep(.el-card__body) {
-  padding: 18px 20px;
-}
-.metric-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: #909399;
-  margin-bottom: 8px;
-}
-.metric-value {
-  font-size: 24px;
-  font-weight: 700;
-  color: #303133;
-}
-.metric-sub {
   margin-top: 6px;
   font-size: 12px;
-  color: #909399;
+  color: #94a3b8;
 }
+
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.metric-card {
+  text-align: left;
+  background: #fff;
+  border: 1px solid #eef0f3;
+  border-radius: 10px;
+  padding: 14px 16px;
+  transition: box-shadow 0.15s;
+}
+.metric-card.highlight {
+  border-color: #99f6e4;
+  background: linear-gradient(180deg, #f0fdfa 0%, #fff 60%);
+}
+.metric-label {
+  font-size: 13px;
+  color: #64748b;
+}
+.metric-value {
+  margin-top: 4px;
+  font-size: 24px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.metric-tip {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
 .po-metrics,
 .supplier-metrics {
   margin-bottom: 8px;
 }
 .po-metric,
 .supplier-metric {
-  background: #f5f7fa;
+  background: #f8fafc;
   border-radius: 8px;
   padding: 14px 16px;
   margin-bottom: 12px;
+  border: 1px solid #eef0f3;
 }
 .po-metric-label,
 .supplier-metric-top {
@@ -389,7 +453,7 @@ function goSupplier(id: number) {
 .supplier-metric-value {
   font-size: 22px;
   font-weight: 700;
-  color: #303133;
+  color: #0f172a;
   margin-top: 4px;
 }
 .po-metric-sub {
@@ -407,5 +471,18 @@ function goSupplier(id: number) {
 }
 .header-icon {
   color: #909399;
+}
+
+@media (max-width: 1100px) {
+  .work-cards,
+  .metric-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .work-cards,
+  .metric-row {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

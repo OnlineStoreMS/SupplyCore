@@ -12,6 +12,8 @@ type DashboardStats struct {
 }
 
 type DashboardWorkbench struct {
+	DropshipPO        int64 `json:"dropshipPO"`
+	StockInPO         int64 `json:"stockInPO"`
 	DraftPO           int64 `json:"draftPO"`
 	OrderedPO         int64 `json:"orderedPO"`
 	UnpaidPO          int64 `json:"unpaidPO"`

@@ -2,6 +2,7 @@ package repo
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"supplycore/internal/model"
@@ -36,6 +37,22 @@ func (r *ShipmentRepo) GetByID(poID, id uint64) (*model.PurchaseShipment, error)
 	var s model.PurchaseShipment
 	err := r.db.Scopes(scopeTenant(r.tenantID)).
 		Where("po_id = ? AND id = ?", poID, id).
+		Preload("Items").
+		First(&s).Error
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func (r *ShipmentRepo) FindByTrackingNo(poID uint64, trackingNo string) (*model.PurchaseShipment, error) {
+	trackingNo = strings.TrimSpace(trackingNo)
+	if trackingNo == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var s model.PurchaseShipment
+	err := r.db.Scopes(scopeTenant(r.tenantID)).
+		Where("po_id = ? AND tracking_no = ?", poID, trackingNo).
 		Preload("Items").
 		First(&s).Error
 	if err != nil {

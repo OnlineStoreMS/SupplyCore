@@ -74,17 +74,19 @@ type PaymentDetail struct {
 }
 
 type AttachmentInput struct {
-	PaymentID uint64 `json:"paymentId"`
-	FileType  string `json:"fileType" binding:"required"`
-	FileName  string `json:"fileName" binding:"required"`
-	FileURL   string `json:"fileUrl" binding:"required"`
-	Remark    string `json:"remark"`
+	PaymentID  uint64 `json:"paymentId"`
+	ShipmentID uint64 `json:"shipmentId"`
+	FileType   string `json:"fileType" binding:"required"`
+	FileName   string `json:"fileName" binding:"required"`
+	FileURL    string `json:"fileUrl" binding:"required"`
+	Remark     string `json:"remark"`
 }
 
 type AttachmentDetail struct {
 	ID         uint64 `json:"id"`
 	PoID       uint64 `json:"poId"`
 	PaymentID  uint64 `json:"paymentId"`
+	ShipmentID uint64 `json:"shipmentId"`
 	FileType   string `json:"fileType"`
 	FileName   string `json:"fileName"`
 	FileURL    string `json:"fileUrl"`
@@ -96,4 +98,15 @@ type AttachmentDetail struct {
 type UploadResult struct {
 	URL      string `json:"url"`
 	FileName string `json:"fileName"`
+}
+
+type SyncShipmentsFromOrdersInput struct {
+	RefSoID uint64 `json:"refSoId"` // 可选：仅同步某一销售单
+}
+
+type SyncShipmentsFromOrdersResult struct {
+	Created int      `json:"created"`
+	Updated int      `json:"updated"`
+	Skipped int      `json:"skipped"`
+	Errors  []string `json:"errors,omitempty"`
 }

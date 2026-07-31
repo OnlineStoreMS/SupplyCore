@@ -61,6 +61,7 @@ type PurchaseAttachment struct {
 	TenantID   uint64    `gorm:"index;not null" json:"tenantId"`
 	POID       uint64    `gorm:"index;not null" json:"poId"`
 	PaymentID  uint64    `json:"paymentId"`
+	ShipmentID uint64    `gorm:"index" json:"shipmentId"`
 	FileType   string    `gorm:"size:32;not null" json:"fileType"`
 	FileName   string    `gorm:"size:255;not null" json:"fileName"`
 	FileURL    string    `gorm:"size:512;not null" json:"fileUrl"`

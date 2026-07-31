@@ -105,6 +105,7 @@ watch(
     :loading="loading"
     :placeholder="placeholder"
     no-data-text="请输入订单号搜索"
+    popper-class="order-search-select-dropdown"
     style="width: 100%"
     @change="onChange"
   >
@@ -129,11 +130,13 @@ watch(
 
 <style scoped>
 .order-option {
-  padding: 4px 0;
+  padding: 2px 0;
   line-height: 1.35;
+  white-space: normal;
 }
 .order-option .main {
   font-weight: 500;
+  word-break: break-all;
 }
 .order-option .sub {
   display: flex;
@@ -142,5 +145,19 @@ watch(
   margin-top: 2px;
   font-size: 12px;
   color: #909399;
+}
+</style>
+
+<style>
+.order-search-select-dropdown.el-select-dropdown {
+  min-width: 480px !important;
+  max-width: min(640px, 92vw) !important;
+}
+.order-search-select-dropdown .el-select-dropdown__item {
+  height: auto !important;
+  min-height: 40px;
+  padding: 8px 12px;
+  line-height: 1.35;
+  white-space: normal;
 }
 </style>

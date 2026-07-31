@@ -43,19 +43,26 @@ func (s *DashboardService) Stats() (*dto.DashboardStats, error) {
 	out := &dto.DashboardStats{}
 
 	var err error
-	if out.Workbench.DraftPO, err = r.CountPOsByStatus(model.POStatusDraft); err != nil {
+	// 工作场景默认按今日业务日（COALESCE(ordered_at, created_at)）统计
+	if out.Workbench.DropshipPO, err = r.CountPOsByFulfillmentSince(model.POFulfillmentDropship, true, &today); err != nil {
 		return nil, err
 	}
-	if out.Workbench.OrderedPO, err = r.CountPOsByStatus(model.POStatusOrdered); err != nil {
+	if out.Workbench.StockInPO, err = r.CountPOsByFulfillmentSince(model.POFulfillmentStockIn, true, &today); err != nil {
 		return nil, err
 	}
-	if out.Workbench.UnpaidPO, err = r.CountUnpaidPOs(); err != nil {
+	if out.Workbench.DraftPO, err = r.CountPOsByStatusSince(model.POStatusDraft, &today); err != nil {
 		return nil, err
 	}
-	if out.Workbench.InTransitPO, err = r.CountPOsByStatuses(inTransitStatuses); err != nil {
+	if out.Workbench.OrderedPO, err = r.CountPOsByStatusSince(model.POStatusOrdered, &today); err != nil {
 		return nil, err
 	}
-	if out.Workbench.PartialReceivedPO, err = r.CountPOsByStatus(model.POStatusPartialReceived); err != nil {
+	if out.Workbench.UnpaidPO, err = r.CountUnpaidPOsSince(&today); err != nil {
+		return nil, err
+	}
+	if out.Workbench.InTransitPO, err = r.CountPOsByStatusesSince(inTransitStatuses, &today); err != nil {
+		return nil, err
+	}
+	if out.Workbench.PartialReceivedPO, err = r.CountPOsByStatusSince(model.POStatusPartialReceived, &today); err != nil {
 		return nil, err
 	}
 	if out.Workbench.ActiveOffers, err = r.CountOffers(true); err != nil {

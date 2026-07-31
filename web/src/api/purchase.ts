@@ -15,6 +15,9 @@ export interface PurchaseOrderItem {
   unitPrice: number
   lineAmount?: number
   receivedQty?: number
+  refSoId?: number
+  refOrderNo?: string
+  cancelled?: boolean
   remark?: string
 }
 
@@ -54,6 +57,7 @@ export interface PurchaseOrderListItem {
   totalAmount: number
   currency: string
   itemCount: number
+  skuSpecs?: string
   refSoId?: number
   refTraceId?: string
   orderedAt?: string
@@ -61,7 +65,7 @@ export interface PurchaseOrderListItem {
 }
 
 export interface PurchaseOrderInput {
-  supplierId: number
+  supplierId?: number
   fulfillmentType?: string
   currency?: string
   expectedArrivalDate?: string
@@ -111,11 +115,23 @@ export const FULFILLMENT_TYPE_MAP: Record<string, string> = {
 
 export async function fetchPurchaseOrders(params: {
   status?: string
+  /** 多状态，逗号分隔，优先于 status */
+  statuses?: string
+  /** 付款状态，逗号分隔 unpaid|partial|paid */
+  payStatus?: string
+  /** 排除状态，逗号分隔 */
+  excludeStatuses?: string
   fulfillmentType?: string
   supplierId?: number
   refSoId?: number
   refTraceId?: string
   keyword?: string
+  createdAtStart?: string
+  createdAtEnd?: string
+  orderedAtStart?: string
+  orderedAtEnd?: string
+  sortBy?: string
+  sortOrder?: string
   page?: number
   pageSize?: number
 } = {}) {
@@ -139,6 +155,13 @@ export async function deletePurchaseOrder(id: number) {
   return unwrap(await client.delete(`/purchase-orders/${id}`))
 }
 
+export async function updatePurchaseOrderItemPrices(
+  id: number,
+  items: { itemId: number; unitPrice: number }[],
+) {
+  return unwrap<PurchaseOrder>(await client.put(`/purchase-orders/${id}/item-prices`, { items }))
+}
+
 export async function submitPurchaseOrder(id: number) {
   return unwrap<PurchaseOrder>(await client.post(`/purchase-orders/${id}/submit`))
 }
@@ -153,4 +176,10 @@ export async function completePurchaseOrder(id: number) {
 
 export async function cancelPurchaseOrder(id: number) {
   return unwrap<PurchaseOrder>(await client.post(`/purchase-orders/${id}/cancel`))
+}
+
+export async function mergePurchaseOrders(data: { sourcePoIds: number[]; targetPoId?: number }) {
+  return unwrap<PurchaseOrder & { mergedFromPoNos?: string[]; relinked?: number }>(
+    await client.post('/purchase-orders/merge', data),
+  )
 }

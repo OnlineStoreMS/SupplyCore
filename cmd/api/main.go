@@ -33,7 +33,11 @@ func main() {
 	}
 	log.Printf("database connected: driver=%s", cfg.Database.Driver)
 
-	engine := router.Setup(db, cfg)
+	engine, settlementSched := router.Setup(db, cfg)
+	settlementSched.Start()
+	defer settlementSched.Stop()
+	log.Printf("settlement merge scheduler started")
+
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	log.Printf("SupplyCore API listening on http://localhost%s", addr)
 	if err := engine.Run(addr); err != nil {

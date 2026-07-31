@@ -22,7 +22,7 @@ import {
   resolveProductSkus,
   type ProductSkuSearchItem,
 } from '../../api/productSku'
-import type { OrderBrief } from '../../api/order'
+import { fetchOrder, type OrderBrief } from '../../api/order'
 
 const route = useRoute()
 const router = useRouter()
@@ -31,6 +31,7 @@ const poId = computed(() => (isEdit.value ? Number(route.params.id) : 0))
 
 const loading = ref(false)
 const saving = ref(false)
+const orderLoading = ref(false)
 const suppliers = ref<Supplier[]>([])
 const offers = ref<SkuOffer[]>([])
 const offerSkuMap = ref<Map<number, ProductSkuSearchItem>>(new Map())
@@ -45,22 +46,109 @@ const offerDraft = ref({
   supportsSelfStock: false,
 })
 
-function nowOrderedAt() {
+function defaultPurchaseAt() {
+  // 手工新建默认：当天常见采购时刻 10:00
   const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} 10:00:00`
+}
+
+function formatOrderedAt(raw?: string) {
+  if (!raw) return ''
+  // 兼容 RFC3339 / 本地格式
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) {
+    return raw.replace('T', ' ').slice(0, 19)
+  }
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 const form = ref<PurchaseOrderInput>({
-  supplierId: 0,
+  supplierId: undefined,
   fulfillmentType: 'stock_in',
   currency: 'CNY',
   remark: '',
-  orderedAt: nowOrderedAt(),
+  orderedAt: defaultPurchaseAt(),
   items: [{ qty: 1, unitPrice: 0 }],
 })
 
-function onOrderSelect(item: OrderBrief | undefined) {
+function roundMoney(n: number) {
+  return Math.round((n + Number.EPSILON) * 100) / 100
+}
+
+function mapOrderToLines(order: OrderBrief) {
+  const items = order.items || []
+  if (!items.length) return [{ qty: 1, unitPrice: 0 }]
+
+  let pay = Number(order.payAmount || 0)
+  if (pay <= 0) pay = Number(order.totalAmount || 0)
+
+  const weights = items.map((it) => {
+    let w = Number(it.totalAmount || 0)
+    if (w <= 0) {
+      const qty = it.quantity > 0 ? it.quantity : 1
+      w = Number(it.price || 0) * qty
+    }
+    return w > 0 ? w : 1
+  })
+  const sumW = weights.reduce((a, b) => a + b, 0)
+
+  let allocated = 0
+  const remarkParts: string[] = []
+  if (order.remark?.trim()) remarkParts.push(`买家备注：${order.remark.trim()}`)
+  if (order.sellerRemark?.trim()) remarkParts.push(`卖家备注：${order.sellerRemark.trim()}`)
+  const lineRemark = remarkParts.join('；')
+
+  return items.map((it, i) => {
+    const qty = it.quantity > 0 ? it.quantity : 1
+    let saleAmt = 0
+    if (pay > 0 && sumW > 0) {
+      if (i === items.length - 1) {
+        saleAmt = roundMoney(pay - allocated)
+      } else {
+        saleAmt = roundMoney((pay * weights[i]) / sumW)
+        allocated += saleAmt
+      }
+    } else {
+      saleAmt = roundMoney(Number(it.totalAmount || 0) || Number(it.price || 0) * qty)
+    }
+    if (saleAmt < 0) saleAmt = 0
+    const saleUnit = qty > 0 ? roundMoney(saleAmt / qty) : 0
+
+    let unitPrice = 0
+    let offerId: number | undefined
+    let supplierSkuCode: string | undefined
+    const skuId = it.skuId || undefined
+    if (skuId && form.value.supplierId) {
+      const offer = offers.value.find((o) => o.skuId === skuId)
+      if (offer) {
+        offerId = offer.id
+        unitPrice = offer.supplyPrice
+        supplierSkuCode = offer.supplierSkuCode
+      }
+    }
+
+    return {
+      skuId,
+      offerId,
+      productName: it.productName,
+      skuCode: it.skuCode,
+      skuSpecs: it.skuSpecs,
+      picUrl: it.picUrl,
+      supplierSkuCode,
+      qty,
+      saleUnitPrice: saleUnit,
+      saleAmount: saleAmt,
+      unitPrice,
+      refSoId: order.id || undefined,
+      refOrderNo: order.orderNo || undefined,
+      remark: lineRemark || undefined,
+    }
+  })
+}
+
+async function onOrderSelect(item: OrderBrief | undefined) {
   if (!item) {
     form.value.refSoId = undefined
     form.value.refTraceId = undefined
@@ -68,8 +156,26 @@ function onOrderSelect(item: OrderBrief | undefined) {
   }
   form.value.refTraceId = item.orderNo
   form.value.refSoId = item.id || undefined
-  if (item.payAmount != null && item.payAmount > 0) {
-    form.value.saleAmount = item.payAmount
+
+  if (!item.id) {
+    ElMessage.warning('未找到订单详情，请重新搜索选择')
+    return
+  }
+
+  orderLoading.value = true
+  try {
+    const order = await fetchOrder(item.id)
+    form.value.refTraceId = order.orderNo
+    form.value.refSoId = order.id
+    const pay = Number(order.payAmount || order.totalAmount || 0)
+    if (pay > 0) form.value.saleAmount = pay
+    // 采购时间保持表单默认/用户所选，不随销售单下单时间覆盖
+    form.value.items = mapOrderToLines(order)
+    ElMessage.success(`已带入订单 ${order.orderNo} 的 ${form.value.items.length} 行明细`)
+  } catch (e) {
+    ElMessage.error((e as Error).message || '加载订单明细失败')
+  } finally {
+    orderLoading.value = false
   }
 }
 
@@ -120,7 +226,7 @@ async function loadPO() {
       warehouseId: po.warehouseId,
       refSoId: po.refSoId,
       refTraceId: po.refTraceId,
-      orderedAt: po.orderedAt || nowOrderedAt(),
+      orderedAt: formatOrderedAt(po.orderedAt) || defaultPurchaseAt(),
       remark: po.remark,
       items: po.items.map((it) => ({
         skuId: it.skuId || undefined,
@@ -156,8 +262,18 @@ onMounted(async () => {
   await loadPO()
 })
 
-watch(() => form.value.supplierId, (id) => {
-  void loadOffers(id)
+watch(() => form.value.supplierId, async (id) => {
+  await loadOffers(id || 0)
+  if (!id) return
+  // 已选订单明细时，按供应商报价自动带入拿货价
+  for (const line of form.value.items) {
+    if (!line.skuId) continue
+    const offer = offers.value.find((o) => o.skuId === line.skuId)
+    if (!offer) continue
+    line.offerId = offer.id
+    line.unitPrice = offer.supplyPrice
+    if (offer.supplierSkuCode) line.supplierSkuCode = offer.supplierSkuCode
+  }
 })
 
 function addLine() {
@@ -304,7 +420,7 @@ async function handleSave() {
 </script>
 
 <template>
-  <div v-loading="loading" class="po-form">
+  <div v-loading="loading || orderLoading" class="po-form">
     <el-button :icon="ArrowLeft" text @click="router.push('/purchase-orders')">返回列表</el-button>
 
     <el-card>
@@ -314,8 +430,19 @@ async function handleSave() {
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="供应商" required>
-              <el-select v-model="form.supplierId" filterable placeholder="选择供应商" style="width: 100%">
-                <el-option v-for="s in suppliers" :key="s.id" :label="`${s.name} (${s.code})`" :value="s.id" />
+              <el-select
+                v-model="form.supplierId"
+                filterable
+                clearable
+                placeholder="搜索供应商名称 / 编码"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="s in suppliers"
+                  :key="s.id"
+                  :label="`${s.name}（${s.code}）`"
+                  :value="s.id"
+                />
               </el-select>
             </el-form-item>
           </el-col>
@@ -347,13 +474,13 @@ async function handleSave() {
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="下单时间">
+            <el-form-item label="采购时间">
               <el-date-picker
                 v-model="form.orderedAt"
                 type="datetime"
                 value-format="YYYY-MM-DD HH:mm:ss"
                 format="YYYY-MM-DD HH:mm"
-                placeholder="默认当前时间"
+                placeholder="默认当天 10:00，可改"
                 style="width: 100%"
               />
             </el-form-item>
