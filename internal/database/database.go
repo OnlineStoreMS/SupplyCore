@@ -62,6 +62,8 @@ func AutoMigrate(db *gorm.DB) error {
 	}
 	// 历史地址无类型时补为发货地址
 	_ = db.Exec(`UPDATE supplier_addresses SET address_type = 'ship' WHERE address_type IS NULL OR address_type = ''`).Error
+	// PO 发货态：历史「运输中」in_transit → 「已发货」shipped（物流态仍在 shipment.status）
+	_ = db.Exec(`UPDATE purchase_orders SET status = 'shipped' WHERE status = 'in_transit'`).Error
 	return ensureIndexes(db)
 }
 

@@ -280,7 +280,7 @@ func (s *PurchaseOrderService) Complete(id uint64) (*dto.PurchaseOrderDetail, er
 	}
 	allowed := map[string]bool{
 		model.POStatusPaid: true, model.POStatusPartialShipped: true,
-		model.POStatusInTransit: true, model.POStatusPartialReceived: true,
+		model.POStatusShipped: true, model.POStatusPartialReceived: true,
 	}
 	if !allowed[po.Status] {
 		return nil, ErrInvalidStatus
@@ -376,9 +376,7 @@ func (s *PurchaseOrderService) Merge(in *dto.MergePurchaseOrdersInput) (*dto.Mer
 		if err != nil {
 			return nil, err
 		}
-		if po.Status != model.POStatusDraft && po.Status != model.POStatusOrdered {
-			return nil, ErrInvalidStatus
-		}
+		// 合并不限制订单状态；已付/部分付款仍不可合并
 		if po.PayStatus == model.POPayStatusPaid || po.PayStatus == model.POPayStatusPartial {
 			return nil, ErrInvalidStatus
 		}
@@ -401,6 +399,7 @@ func (s *PurchaseOrderService) Merge(in *dto.MergePurchaseOrdersInput) (*dto.Mer
 	}
 
 	mergedItems := make([]model.PurchaseOrderItem, 0)
+	oldItemIDs := make([]uint64, 0)
 	traceParts := make([]string, 0)
 	traceSeen := map[string]struct{}{}
 	var saleTotal float64
@@ -437,6 +436,7 @@ func (s *PurchaseOrderService) Merge(in *dto.MergePurchaseOrdersInput) (*dto.Mer
 			if it.Cancelled {
 				continue
 			}
+			oldItemIDs = append(oldItemIDs, it.ID)
 			line := it
 			line.ID = 0
 			line.POID = 0
@@ -495,6 +495,29 @@ func (s *PurchaseOrderService) Merge(in *dto.MergePurchaseOrdersInput) (*dto.Mer
 	if err := pr.ReplaceItems(target.ID, mergedItems); err != nil {
 		return nil, err
 	}
+	if len(oldItemIDs) != len(mergedItems) {
+		return nil, fmt.Errorf("合并明细数量不一致")
+	}
+	oldToNewItem := make(map[uint64]uint64, len(oldItemIDs))
+	for i, oldID := range oldItemIDs {
+		if mergedItems[i].ID == 0 {
+			return nil, fmt.Errorf("合并后明细未生成 ID")
+		}
+		oldToNewItem[oldID] = mergedItems[i].ID
+	}
+
+	// 源单物流/付款/附件先挂到目标单，再删源单，避免物流被 Delete 级联清掉
+	for _, po := range ordered {
+		if po.ID == target.ID {
+			continue
+		}
+		if err := pr.ReassignPOSideData(po.ID, target.ID); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.repos.Shipment.ForTenant(s.tenantID).RemapItemPOItemIDs(oldToNewItem); err != nil {
+		return nil, err
+	}
 
 	mergedFrom := make([]string, 0, len(ordered)-1)
 	for _, po := range ordered {
@@ -507,6 +530,8 @@ func (s *PurchaseOrderService) Merge(in *dto.MergePurchaseOrdersInput) (*dto.Mer
 		}
 	}
 
+	_ = NewPOTrackingService(s.repos, nil).ForTenant(s.tenantID).syncShipmentStatus(target.ID)
+
 	detail, err := s.Get(target.ID)
 	if err != nil {
 		return nil, err
@@ -518,7 +543,7 @@ func (s *PurchaseOrderService) Merge(in *dto.MergePurchaseOrdersInput) (*dto.Mer
 }
 
 // DetachSalesOrder 从代发单撤回某笔销售单：对应明细标为已撤回（保留划线痕迹），更新备注与关联单号。
-// 若全部明细均已撤回且单据仍为草稿/已下单，则整单取消。
+// 已付款/部分发货也可解绑（不冲销付款）；若全部明细已撤回且仍为草稿/已下单，则整单取消。
 func (s *PurchaseOrderService) DetachSalesOrder(in *dto.DetachSalesOrderInput) (*dto.PurchaseOrderDetail, error) {
 	if in == nil {
 		return nil, ErrBadRequest
@@ -539,51 +564,8 @@ func (s *PurchaseOrderService) DetachSalesOrder(in *dto.DetachSalesOrderInput) (
 	if po.FulfillmentType != model.POFulfillmentDropship {
 		return nil, ErrBadRequest
 	}
-	if po.Status == model.POStatusCancelled {
-		// 整单已取消时仍补标未撤回明细（兼容「最后一单只取消头」的历史数据）
-		nowLabel := time.Now().Format("2006-01-02 15:04")
-		reason := strings.TrimSpace(in.Reason)
-		if reason == "" {
-			reason = "销售单撤回分配"
-		}
-		for i := range po.Items {
-			it := &po.Items[i]
-			if it.Cancelled {
-				continue
-			}
-			hit := false
-			if orderNo != "" && (it.RefOrderNo == orderNo || strings.Contains(it.Remark, orderNo)) {
-				hit = true
-			}
-			if in.SoID > 0 && it.RefSoID == in.SoID {
-				hit = true
-			}
-			if !hit {
-				continue
-			}
-			it.Cancelled = true
-			tag := fmt.Sprintf("【已撤回 %s：%s】", nowLabel, reason)
-			if orderNo != "" {
-				tag = fmt.Sprintf("【已撤回 %s %s：%s】", orderNo, nowLabel, reason)
-			}
-			if strings.TrimSpace(it.Remark) == "" {
-				it.Remark = tag
-			} else if !strings.Contains(it.Remark, "【已撤回") {
-				it.Remark = tag + " " + it.Remark
-			}
-			if err := pr.SaveItem(it); err != nil {
-				return nil, err
-			}
-		}
-		return s.Get(po.ID)
-	}
-	if po.PayStatus == model.POPayStatusPaid || po.PayStatus == model.POPayStatusPartial ||
-		po.Status == model.POStatusPaid || po.Status == model.POStatusPartialShipped ||
-		po.Status == model.POStatusInTransit || po.Status == model.POStatusPartialReceived ||
-		po.Status == model.POStatusCompleted {
-		return nil, fmt.Errorf("代发单 %s 已进入付款/履约，不可撤回销售单", po.PoNo)
-	}
-
+	// 解绑销售单：草稿/已下单/已付款/部分发货均可（仅划线明细并去掉关联，不冲销付款）。
+	// 整单取消仍仅限草稿/已下单且全部明细已撤回。
 	reason := strings.TrimSpace(in.Reason)
 	if reason == "" {
 		reason = "销售单撤回分配"
@@ -619,6 +601,10 @@ func (s *PurchaseOrderService) DetachSalesOrder(in *dto.DetachSalesOrderInput) (
 			return nil, err
 		}
 		matched++
+	}
+	// 整单已取消时仍允许补标（兼容历史数据），随后直接返回
+	if po.Status == model.POStatusCancelled {
+		return s.Get(po.ID)
 	}
 
 	// 无 RefOrderNo 的历史明细：按「仍无法匹配」时，若 refTrace 含该单号也记入头备注

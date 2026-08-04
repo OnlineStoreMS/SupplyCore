@@ -4,7 +4,7 @@ import type { Router } from 'vue-router'
 export type POListIntent = {
   fulfillmentType?: string
   status?: string
-  /** 多状态，如部分发货+运输中 */
+  /** 多状态，如部分发货+已发货 */
   statuses?: string[]
   /** 付款状态，如 unpaid,partial */
   payStatuses?: string[]
@@ -13,6 +13,9 @@ export type POListIntent = {
   refSoId?: number
   /** 工作台「今日」：按业务日 COALESCE(ordered_at, created_at) 筛今天 */
   today?: boolean
+  /** 采购业务日范围 YYYY-MM-DD（优先于 today） */
+  orderedDateStart?: string
+  orderedDateEnd?: string
 }
 
 const KEY = 'supplycore.poListIntent'

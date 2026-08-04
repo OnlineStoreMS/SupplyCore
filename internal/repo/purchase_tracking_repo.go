@@ -98,6 +98,26 @@ func (r *ShipmentRepo) Delete(poID, id uint64) error {
 	})
 }
 
+// RemapItemPOItemIDs 合并重建明细后，把物流明细的 po_item_id 指到新 ID。
+func (r *ShipmentRepo) RemapItemPOItemIDs(oldToNew map[uint64]uint64) error {
+	if len(oldToNew) == 0 {
+		return nil
+	}
+	now := time.Now()
+	for oldID, newID := range oldToNew {
+		if oldID == 0 || newID == 0 || oldID == newID {
+			continue
+		}
+		if err := r.db.Model(&model.PurchaseShipmentItem{}).
+			Scopes(scopeTenant(r.tenantID)).
+			Where("po_item_id = ?", oldID).
+			Updates(map[string]any{"po_item_id": newID, "updated_at": now}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *ShipmentRepo) NextShipmentNo() (string, error) {
 	prefix := "SH" + time.Now().Format("20060102")
 	var count int64

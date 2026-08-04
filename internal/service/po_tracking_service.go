@@ -672,8 +672,8 @@ func (s *POTrackingService) syncShipmentStatus(poID uint64) error {
 			po.Status = model.POStatusPartialReceived
 		}
 	case hasInTransit || (fullyShipped && hasShipped):
-		// 明细已全部发出：标运输中，不再标「部分发货」
-		po.Status = model.POStatusInTransit
+		// 明细已全部发出：标已发货，不再标「部分发货」
+		po.Status = model.POStatusShipped
 	case hasShipped:
 		po.Status = model.POStatusPartialShipped
 	}

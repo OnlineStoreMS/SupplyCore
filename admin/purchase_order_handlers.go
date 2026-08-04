@@ -35,8 +35,12 @@ func (h *PurchaseOrderHandler) List(c *gin.Context) {
 	page, pageSize := httputil.ParsePage(c)
 	supplierID, _ := strconv.ParseUint(c.Query("supplierId"), 10, 64)
 	refSoID, _ := strconv.ParseUint(c.Query("refSoId"), 10, 64)
+	status := c.Query("status")
+	if status == "in_transit" {
+		status = "shipped"
+	}
 	list, total, err := h.ps(c).List(repo.POListFilter{
-		Status: c.Query("status"), Statuses: splitCSV(c.Query("statuses")),
+		Status: status, Statuses: splitCSV(c.Query("statuses")),
 		PayStatuses: splitCSV(c.Query("payStatus")), ExcludeStatuses: splitCSV(c.Query("excludeStatuses")),
 		FulfillmentType: c.Query("fulfillmentType"),
 		SupplierID: supplierID, RefSoID: refSoID, RefTraceID: c.Query("refTraceId"),
@@ -63,9 +67,14 @@ func splitCSV(s string) []string {
 	out := make([]string, 0, len(parts))
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
+		if p == "" {
+			continue
 		}
+		// 兼容旧筛选值「运输中」
+		if p == "in_transit" {
+			p = "shipped"
+		}
+		out = append(out, p)
 	}
 	if len(out) == 0 {
 		return nil
@@ -304,7 +313,32 @@ func (h *PurchaseOrderHandler) DetachSalesOrder(c *gin.Context) {
 		response.Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	response.OK(c, item)
+	unlinkWarning := ""
+	if h.oc != nil {
+		auth := c.GetHeader("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			tok := authcontext.BearerToken(c)
+			if tok != "" {
+				auth = "Bearer " + tok
+			}
+		}
+		var orderIDs []uint64
+		var orderNos []string
+		if in.SoID > 0 {
+			orderIDs = []uint64{in.SoID}
+		}
+		if no := strings.TrimSpace(in.OrderNo); no != "" {
+			orderNos = []string{no}
+		}
+		remark := strings.TrimSpace(in.Reason)
+		if remark == "" {
+			remark = "供应链解绑代发销售单"
+		}
+		if _, rerr := h.oc.UnlinkDropshipPO(c.Request.Context(), auth, orderIDs, orderNos, true, remark); rerr != nil {
+			unlinkWarning = rerr.Error()
+		}
+	}
+	response.OK(c, gin.H{"purchaseOrder": item, "unlinkWarning": unlinkWarning})
 }
 
 func (h *PurchaseOrderHandler) Submit(c *gin.Context) {

@@ -29,3 +29,12 @@ func (h *DashboardHandler) Stats(c *gin.Context) {
 	}
 	response.OK(c, stats)
 }
+
+func (h *DashboardHandler) Trend(c *gin.Context) {
+	data, err := h.ds(c).Trend(c.Query("startDate"), c.Query("endDate"))
+	if err != nil {
+		httputil.HandleServiceError(c, err)
+		return
+	}
+	response.OK(c, data)
+}

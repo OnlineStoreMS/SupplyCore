@@ -96,7 +96,7 @@ export const PO_STATUS_MAP: Record<string, { label: string; type: '' | 'success'
   ordered: { label: '已下单', type: '' },
   paid: { label: '已付款', type: 'warning' },
   partial_shipped: { label: '部分发货', type: '' },
-  in_transit: { label: '运输中', type: 'warning' },
+  shipped: { label: '已发货', type: 'warning' },
   partial_received: { label: '部分到货', type: '' },
   completed: { label: '已完成', type: 'success' },
   cancelled: { label: '已取消', type: 'danger' },
@@ -176,6 +176,17 @@ export async function completePurchaseOrder(id: number) {
 
 export async function cancelPurchaseOrder(id: number) {
   return unwrap<PurchaseOrder>(await client.post(`/purchase-orders/${id}/cancel`))
+}
+
+export async function detachSalesOrder(data: {
+  poNo: string
+  orderNo?: string
+  soId?: number
+  reason?: string
+}) {
+  return unwrap<{ purchaseOrder: PurchaseOrder; unlinkWarning?: string }>(
+    await client.post('/purchase-orders/detach-sales-order', data),
+  )
 }
 
 export async function mergePurchaseOrders(data: { sourcePoIds: number[]; targetPoId?: number }) {

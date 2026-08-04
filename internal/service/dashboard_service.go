@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"time"
 
 	"supplycore/internal/dto"
@@ -32,12 +33,12 @@ func (s *DashboardService) Stats() (*dto.DashboardStats, error) {
 	inProgressStatuses := []string{
 		model.POStatusPaid,
 		model.POStatusPartialShipped,
-		model.POStatusInTransit,
+		model.POStatusShipped,
 		model.POStatusPartialReceived,
 	}
-	inTransitStatuses := []string{
+	shippedStatuses := []string{
 		model.POStatusPartialShipped,
-		model.POStatusInTransit,
+		model.POStatusShipped,
 	}
 
 	out := &dto.DashboardStats{}
@@ -59,7 +60,7 @@ func (s *DashboardService) Stats() (*dto.DashboardStats, error) {
 	if out.Workbench.UnpaidPO, err = r.CountUnpaidPOsSince(&today); err != nil {
 		return nil, err
 	}
-	if out.Workbench.InTransitPO, err = r.CountPOsByStatusesSince(inTransitStatuses, &today); err != nil {
+	if out.Workbench.InTransitPO, err = r.CountPOsByStatusesSince(shippedStatuses, &today); err != nil {
 		return nil, err
 	}
 	if out.Workbench.PartialReceivedPO, err = r.CountPOsByStatusSince(model.POStatusPartialReceived, &today); err != nil {
@@ -68,6 +69,13 @@ func (s *DashboardService) Stats() (*dto.DashboardStats, error) {
 	if out.Workbench.ActiveOffers, err = r.CountOffers(true); err != nil {
 		return nil, err
 	}
+	saleAmt, purchaseAmt, err := r.SumDropshipSaleAndPurchaseOnDay(today)
+	if err != nil {
+		return nil, err
+	}
+	out.Workbench.TodayDropshipSaleAmount = saleAmt
+	out.Workbench.TodayDropshipPurchaseAmount = purchaseAmt
+	out.Workbench.TodayDropshipProfit = saleAmt - purchaseAmt
 
 	if out.Supplier.Total, err = r.CountSuppliers(false); err != nil {
 		return nil, err
@@ -180,5 +188,43 @@ func (s *DashboardService) Stats() (*dto.DashboardStats, error) {
 		out.RecentOrders = append(out.RecentOrders, item)
 	}
 
+	return out, nil
+}
+
+func (s *DashboardService) Trend(startDate, endDate string) (*dto.DashboardTrend, error) {
+	r := s.repos.Dashboard.ForTenant(s.tenantID)
+	var start, end time.Time
+	var err error
+	if startDate != "" {
+		start, err = time.ParseInLocation("2006-01-02", startDate, time.Local)
+		if err != nil {
+			return nil, fmt.Errorf("%w: startDate 格式应为 YYYY-MM-DD", ErrBadRequest)
+		}
+	}
+	if endDate != "" {
+		end, err = time.ParseInLocation("2006-01-02", endDate, time.Local)
+		if err != nil {
+			return nil, fmt.Errorf("%w: endDate 格式应为 YYYY-MM-DD", ErrBadRequest)
+		}
+	}
+	start, end, err = repo.NormalizeDashboardRange(start, end)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	points, err := r.DailyDropshipTrend(start, end)
+	if err != nil {
+		return nil, err
+	}
+	out := &dto.DashboardTrend{
+		StartDate: start.Format("2006-01-02"),
+		EndDate:   end.Format("2006-01-02"),
+		Points:    points,
+	}
+	for _, p := range points {
+		out.OrderCount += p.OrderCount
+		out.SaleAmount += p.SaleAmount
+		out.PurchaseAmount += p.PurchaseAmount
+		out.Profit += p.Profit
+	}
 	return out, nil
 }

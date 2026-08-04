@@ -230,6 +230,28 @@ func (r *PurchaseOrderRepo) SaveItem(item *model.PurchaseOrderItem) error {
 	return r.db.Save(item).Error
 }
 
+// ReassignPOSideData 将源单的物流/付款/附件/收包记录挂到目标单（合并用，避免删源单时级联清掉）。
+func (r *PurchaseOrderRepo) ReassignPOSideData(fromPOID, toPOID uint64) error {
+	if fromPOID == 0 || toPOID == 0 || fromPOID == toPOID {
+		return nil
+	}
+	now := time.Now()
+	for _, m := range []any{
+		&model.PurchaseShipment{},
+		&model.PurchasePayment{},
+		&model.PurchaseAttachment{},
+		&model.PackageReceiveRecord{},
+	} {
+		if err := r.db.Model(m).
+			Scopes(scopeTenant(r.tenantID)).
+			Where("po_id = ?", fromPOID).
+			Updates(map[string]any{"po_id": toPOID, "updated_at": now}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *PurchaseOrderRepo) Delete(id uint64) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		var shipmentIDs []uint64

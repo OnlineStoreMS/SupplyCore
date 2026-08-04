@@ -4,6 +4,7 @@ import "github.com/gin-gonic/gin"
 
 func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *OfferHandler, poH *PurchaseOrderHandler, trackH *POTrackingHandler, skuH *ProductSkuHandler, whH *WarehouseHandler, extH *PurchaseExtHandler, dashH *DashboardHandler, orderH *OrderHandler) {
 	g.GET("/dashboard/stats", dashH.Stats)
+	g.GET("/dashboard/trend", dashH.Trend)
 
 	g.GET("/orders/search", orderH.Search)
 	g.POST("/orders/decrypt", orderH.Decrypt)

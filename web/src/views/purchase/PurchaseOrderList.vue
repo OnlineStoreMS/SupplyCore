@@ -121,7 +121,6 @@ const canMerge = computed(() => {
 
 function isMergeableDropship(row: PurchaseOrderListItem) {
   if (row.fulfillmentType !== 'dropship') return false
-  if (row.status !== 'draft' && row.status !== 'ordered') return false
   if (row.payStatus === 'paid' || row.payStatus === 'partial') return false
   return true
 }
@@ -161,7 +160,13 @@ function applyRouteContext() {
     if (intent.excludeStatuses?.length) {
       excludeStatusesFilter.value = intent.excludeStatuses.join(',')
     }
-    if (intent.today) {
+    if (intent.orderedDateStart && intent.orderedDateEnd) {
+      orderedRange.value = [
+        `${intent.orderedDateStart} 00:00:00`,
+        `${intent.orderedDateEnd} 23:59:59`,
+      ]
+      createdRange.value = null
+    } else if (intent.today) {
       orderedRange.value = todayDateTimeRange()
       createdRange.value = null
     }

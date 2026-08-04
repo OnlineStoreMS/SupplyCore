@@ -22,7 +22,8 @@ func NewClient(baseURL string) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
+			// 发货回传快递助手可能超过 1 分钟
+			Timeout: 180 * time.Second,
 		},
 	}
 }
@@ -215,6 +216,26 @@ func (c *Client) RelinkPurchaseOrder(ctx context.Context, bearerToken string, fr
 		ToPoNo  string `json:"toPoNo"`
 	}
 	if err := c.postJSON(ctx, bearerToken, "/api/v1/admin/orders/relink-purchase-order", body, &out); err != nil {
+		return 0, err
+	}
+	return out.Updated, nil
+}
+
+// UnlinkDropshipPO 供应链解绑销售单后回写订单中心（清空采购单号，可选清分配）。
+func (c *Client) UnlinkDropshipPO(ctx context.Context, bearerToken string, orderIDs []uint64, orderNos []string, clearAlloc bool, remark string) (int64, error) {
+	if len(orderIDs) == 0 && len(orderNos) == 0 {
+		return 0, fmt.Errorf("orderIds or orderNos required")
+	}
+	body := map[string]any{
+		"orderIds":   orderIDs,
+		"orderNos":   orderNos,
+		"clearAlloc": clearAlloc,
+		"remark":     strings.TrimSpace(remark),
+	}
+	var out struct {
+		Updated int64 `json:"updated"`
+	}
+	if err := c.postJSON(ctx, bearerToken, "/api/v1/admin/orders/unlink-dropship-po", body, &out); err != nil {
 		return 0, err
 	}
 	return out.Updated, nil

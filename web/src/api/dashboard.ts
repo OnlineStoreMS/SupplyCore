@@ -10,6 +10,9 @@ export interface DashboardWorkbench {
   inTransitPO: number
   partialReceivedPO: number
   activeOffers: number
+  todayDropshipSaleAmount: number
+  todayDropshipPurchaseAmount: number
+  todayDropshipProfit: number
 }
 
 export interface DashboardSupplierStats {
@@ -62,4 +65,26 @@ export interface DashboardStats {
 
 export async function fetchDashboardStats() {
   return unwrap<DashboardStats>(await client.get('/dashboard/stats'))
+}
+
+export interface DashboardTrendPoint {
+  date: string
+  orderCount: number
+  saleAmount: number
+  purchaseAmount: number
+  profit: number
+}
+
+export interface DashboardTrend {
+  startDate: string
+  endDate: string
+  orderCount: number
+  saleAmount: number
+  purchaseAmount: number
+  profit: number
+  points: DashboardTrendPoint[]
+}
+
+export async function fetchDashboardTrend(params: { startDate?: string; endDate?: string } = {}) {
+  return unwrap<DashboardTrend>(await client.get('/dashboard/trend', { params }))
 }

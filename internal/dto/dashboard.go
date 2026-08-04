@@ -20,6 +20,10 @@ type DashboardWorkbench struct {
 	InTransitPO       int64 `json:"inTransitPO"`
 	PartialReceivedPO int64 `json:"partialReceivedPO"`
 	ActiveOffers      int64 `json:"activeOffers"`
+	// 今日代发毛利：仅 total_amount > 0；毛利润 = sale_amount - total_amount
+	TodayDropshipSaleAmount     float64 `json:"todayDropshipSaleAmount"`
+	TodayDropshipPurchaseAmount float64 `json:"todayDropshipPurchaseAmount"`
+	TodayDropshipProfit         float64 `json:"todayDropshipProfit"`
 }
 
 type DashboardSupplierStats struct {
@@ -58,4 +62,23 @@ type DashboardSupplierRank struct {
 type DashboardStatusCount struct {
 	Status string `json:"status"`
 	Count  int64  `json:"count"`
+}
+
+// DashboardTrend 代发趋势（按采购业务日）
+type DashboardTrend struct {
+	StartDate      string                `json:"startDate"`
+	EndDate        string                `json:"endDate"`
+	OrderCount     int64                 `json:"orderCount"`
+	SaleAmount     float64               `json:"saleAmount"`
+	PurchaseAmount float64               `json:"purchaseAmount"`
+	Profit         float64               `json:"profit"`
+	Points         []DashboardTrendPoint `json:"points"`
+}
+
+type DashboardTrendPoint struct {
+	Date           string  `json:"date"`
+	OrderCount     int64   `json:"orderCount"`
+	SaleAmount     float64 `json:"saleAmount"`
+	PurchaseAmount float64 `json:"purchaseAmount"`
+	Profit         float64 `json:"profit"`
 }

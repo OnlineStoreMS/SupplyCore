@@ -11,6 +11,7 @@ import {
   cancelPurchaseOrder,
   deletePurchaseOrder,
   updatePurchaseOrderItemPrices,
+  detachSalesOrder,
   PO_STATUS_MAP,
   PAY_STATUS_MAP,
   type PurchaseOrder,
@@ -69,9 +70,10 @@ async function onUnitPriceChange(row: { id?: number; unitPrice: number; cancelle
   }
 }
 
-function openOrderCore() {
-  if (!po.value?.refSoId) return
-  window.open(orderCoreOrderUrl(po.value.refSoId), '_blank', 'noopener,noreferrer')
+function openOrderCore(soId?: number) {
+  const id = soId && soId > 0 ? soId : po.value?.refSoId
+  if (!id) return
+  window.open(orderCoreOrderUrl(id), '_blank', 'noopener,noreferrer')
 }
 
 function splitRefOrders(trace?: string) {
@@ -113,6 +115,48 @@ const activeRefOrders = computed(() => refOrders.value.filter((r) => !r.cancelle
 const allRefWithdrawn = computed(
   () => refOrders.value.length > 0 && activeRefOrders.value.length === 0,
 )
+
+const canDetachSales = computed(
+  () => po.value?.fulfillmentType === 'dropship' && po.value.status !== 'cancelled',
+)
+
+async function handleDetachSales(r: { no: string; soId: number }) {
+  if (!po.value || !canDetachSales.value || !r.no) return
+  const paidLike =
+    po.value.payStatus === 'paid' ||
+    po.value.payStatus === 'partial' ||
+    ['paid', 'partial_shipped', 'shipped', 'partial_received', 'completed'].includes(po.value.status)
+  const tip = paidLike
+    ? `确定从本代发单解绑销售单 ${r.no}？\n单据已付款/履约，仅划线解绑并回写订单中心为待分配，不冲销付款记录。`
+    : `确定从本代发单解绑销售单 ${r.no}？将同步清空订单中心分配。`
+  try {
+    await ElMessageBox.confirm(tip, '解绑销售单', { type: 'warning' })
+  } catch {
+    return
+  }
+  acting.value = true
+  try {
+    const res = await detachSalesOrder({
+      poNo: po.value.poNo,
+      orderNo: r.no,
+      soId: r.soId || undefined,
+      reason: '供应链手工解绑',
+    })
+    po.value = res.purchaseOrder
+    if (po.value?.items) {
+      skuMap.value = await resolveProductSkus(po.value.items.map((it) => it.skuId))
+    }
+    if (res.unlinkWarning) {
+      ElMessage.warning(`已解绑代发明细，但回写订单中心失败：${res.unlinkWarning}`)
+    } else {
+      ElMessage.success('已解绑，订单中心已恢复待分配')
+    }
+  } catch (e) {
+    ElMessage.error((e as Error).message || '解绑失败')
+  } finally {
+    acting.value = false
+  }
+}
 
 const trackable = computed(() => po.value && po.value.status !== 'draft' && po.value.status !== 'cancelled')
 
@@ -303,7 +347,7 @@ async function handleCopy() {
           快捷标记已付款
         </el-button>
         <el-button
-          v-if="['paid', 'partial_shipped', 'in_transit', 'partial_received'].includes(po.status)"
+          v-if="['paid', 'partial_shipped', 'shipped', 'partial_received'].includes(po.status)"
           type="success"
           :loading="acting"
           @click="doAction('完成采购', () => completePurchaseOrder(poId))"
@@ -341,11 +385,27 @@ async function handleCopy() {
                     v-for="(r, idx) in refOrders"
                     :key="idx"
                     class="ref-order-line"
-                    :class="{ 'line-cancelled': r.cancelled, linkable: !r.cancelled && (!!r.soId || !!po.refSoId) }"
-                    @click="!r.cancelled && (r.soId || po.refSoId) ? openOrderCore() : undefined"
+                    :class="{ 'line-cancelled': r.cancelled }"
                   >
-                    {{ r.no }}
+                    <span
+                      class="ref-order-no"
+                      :class="{ linkable: !r.cancelled && (!!r.soId || !!po.refSoId) }"
+                      @click="!r.cancelled && (r.soId || po.refSoId) ? openOrderCore(r.soId || po.refSoId) : undefined"
+                    >
+                      {{ r.no }}
+                    </span>
                     <el-tag v-if="r.cancelled" type="info" size="small" class="cancel-tag">已撤回</el-tag>
+                    <el-button
+                      v-else-if="canDetachSales"
+                      type="danger"
+                      link
+                      size="small"
+                      :loading="acting"
+                      class="detach-btn"
+                      @click.stop="handleDetachSales(r)"
+                    >
+                      解绑
+                    </el-button>
                   </div>
                 </div>
                 <div v-if="refOrders.length > 1" class="ref-count">
@@ -356,7 +416,7 @@ async function handleCopy() {
                   <template v-else>共 {{ refOrders.length }} 单</template>
                 </div>
               </template>
-              <el-link v-else-if="po.refSoId" type="primary" @click="openOrderCore">
+              <el-link v-else-if="po.refSoId" type="primary" @click="openOrderCore(po.refSoId)">
                 #{{ po.refSoId }}
               </el-link>
               <span v-else>—</span>
@@ -540,13 +600,20 @@ async function handleCopy() {
   line-height: 1.4;
 }
 .ref-order-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   font-size: 13px;
   color: #606266;
   word-break: break-all;
 }
-.ref-order-line.linkable {
+.ref-order-no.linkable {
   cursor: pointer;
   color: var(--el-color-primary);
+}
+.detach-btn {
+  flex-shrink: 0;
 }
 .ref-count {
   margin-top: 6px;

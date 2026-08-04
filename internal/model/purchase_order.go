@@ -1,14 +1,14 @@
 package model
 
 const (
-	POStatusDraft            = "draft"
-	POStatusOrdered          = "ordered"
-	POStatusPaid             = "paid"
-	POStatusPartialShipped   = "partial_shipped"
-	POStatusInTransit        = "in_transit"
-	POStatusPartialReceived  = "partial_received"
-	POStatusCompleted        = "completed"
-	POStatusCancelled        = "cancelled"
+	POStatusDraft           = "draft"
+	POStatusOrdered         = "ordered"
+	POStatusPaid            = "paid"
+	POStatusPartialShipped  = "partial_shipped" // 部分发货
+	POStatusShipped         = "shipped"         // 已发货（原 in_transit「运输中」）
+	POStatusPartialReceived = "partial_received"
+	POStatusCompleted       = "completed"
+	POStatusCancelled       = "cancelled"
 
 	POPayStatusUnpaid  = "unpaid"
 	POPayStatusPartial = "partial"
