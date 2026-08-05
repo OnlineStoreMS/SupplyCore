@@ -29,10 +29,10 @@ type Supplier struct {
 	CutOffTime          string     `gorm:"size:16;default:00:01" json:"cutOffTime"`
 	ArrivalDays         int        `json:"arrivalDays"`
 	PaymentDays         int        `json:"paymentDays"`
-	// SettlementCycle: 空=不启用；day|week|month|custom（T+1：合并时刻处理上一完整周期）
+	// SettlementCycle: 空=不启用；day|week|month|custom（T+1：含今天 + 上一周期，如按天=昨天+今天）
 	SettlementCycle      string     `gorm:"size:16;default:''" json:"settlementCycle"`
 	SettlementCustomDays int        `gorm:"default:0" json:"settlementCustomDays"`
-	SettlementMergeTime  string     `gorm:"size:8;default:18:30" json:"settlementMergeTime"` // HH:mm 归档合并时刻（处理上一周期）
+	SettlementMergeTime  string     `gorm:"size:8;default:18:30" json:"settlementMergeTime"` // HH:mm 归档合并时刻
 	SettlementLastRunAt  *time.Time `json:"settlementLastRunAt,omitempty"`
 	// AutoCreateDropshipPO 开启后：同步时自动分配到该供应商会建代发采购单（不补历史；手工改分配不受此开关约束）
 	AutoCreateDropshipPO bool `gorm:"not null;default:false" json:"autoCreateDropshipPO"`

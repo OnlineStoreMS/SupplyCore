@@ -88,6 +88,18 @@ func (r *DashboardRepo) CountPOsByFulfillmentSince(fulfillmentType string, exclu
 	return n, err
 }
 
+// CountPOsOnDayExcludeStatuses 业务日全部类型订单数，排除指定状态。
+func (r *DashboardRepo) CountPOsOnDayExcludeStatuses(dayStart *time.Time, excludeStatuses []string) (int64, error) {
+	q := r.db.Model(&model.PurchaseOrder{}).Scopes(scopeTenant(r.tenantID))
+	if len(excludeStatuses) > 0 {
+		q = q.Where("status NOT IN ?", excludeStatuses)
+	}
+	q = scopePOBusinessDay(q, dayStart)
+	var n int64
+	err := q.Count(&n).Error
+	return n, err
+}
+
 func (r *DashboardRepo) CountUnpaidPOs() (int64, error) {
 	return r.CountUnpaidPOsSince(nil)
 }

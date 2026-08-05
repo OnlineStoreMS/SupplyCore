@@ -44,8 +44,8 @@ func (s *DashboardService) Stats() (*dto.DashboardStats, error) {
 	out := &dto.DashboardStats{}
 
 	var err error
-	// 工作场景默认按今日业务日（COALESCE(ordered_at, created_at)）统计
-	if out.Workbench.DropshipPO, err = r.CountPOsByFulfillmentSince(model.POFulfillmentDropship, true, &today); err != nil {
+	// 工作场景「代发订单」卡：今日业务日 · 全部类型 · 排除已取消（含草稿与代发/入仓）
+	if out.Workbench.DropshipPO, err = r.CountPOsOnDayExcludeStatuses(&today, []string{model.POStatusCancelled}); err != nil {
 		return nil, err
 	}
 	if out.Workbench.StockInPO, err = r.CountPOsByFulfillmentSince(model.POFulfillmentStockIn, true, &today); err != nil {

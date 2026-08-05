@@ -126,7 +126,6 @@ interface SalesOrderGroup {
   refOrderNo: string
   lines: LinePick[]
   remainingQty: number
-  productSummary: string
   receiverHint: string
   shipStatusHint: string
 }
@@ -195,7 +194,6 @@ function rebuildSoGroups() {
         refOrderNo: orderNo || (soId ? `订单#${soId}` : `明细#${line.poItemId}`),
         lines: [],
         remainingQty: 0,
-        productSummary: '',
         receiverHint: '',
         shipStatusHint: '',
       }
@@ -206,12 +204,6 @@ function rebuildSoGroups() {
   }
   const groups = [...map.values()]
   for (const g of groups) {
-    g.productSummary = g.lines
-      .map((l) => {
-        const specs = l.skuSpecs ? `（${l.skuSpecs}）` : ''
-        return `${l.productName}${specs} ×${l.qty}`
-      })
-      .join('；')
     const shippedAll = g.lines.every((l) => l.remaining <= 0)
     const partial = g.lines.some((l) => l.shippedQty > 0) && !shippedAll
     g.shipStatusHint = shippedAll ? '已登记物流' : partial ? '部分发货' : '待发货'
@@ -219,15 +211,41 @@ function rebuildSoGroups() {
   soGroups.value = groups
 }
 
-function shipmentProductText(row: Shipment) {
+/** 一销售单多规格行 → 分行展示（销售单号相同） */
+const soGroupRows = computed(() => {
+  const rows: {
+    key: string
+    group: SalesOrderGroup
+    line: LinePick
+    lineStatus: string
+  }[] = []
+  for (const g of soGroups.value) {
+    for (const line of g.lines) {
+      const done = line.remaining <= 0
+      const partial = line.shippedQty > 0 && !done
+      rows.push({
+        key: `${g.key}:${line.poItemId}`,
+        group: g,
+        line,
+        lineStatus: done ? '已登记物流' : partial ? '部分发货' : '待发货',
+      })
+    }
+  }
+  return rows
+})
+
+function formatSpecLabel(specs?: string, qty?: number) {
+  const s = (specs || '').trim() || '—'
+  return qty != null ? `${s} ×${qty}` : s
+}
+
+function shipmentSpecText(row: Shipment) {
   const items = row.items || []
   if (!items.length) return '—'
   return items
     .map((it) => {
       const poItem = itemLabelMap.value.get(it.poItemId)
-      const name = poItem?.productName || `明细#${it.poItemId}`
-      const specs = poItem?.skuSpecs ? `（${poItem.skuSpecs}）` : ''
-      return `${name}${specs} ×${it.qty}`
+      return formatSpecLabel(poItem?.skuSpecs, it.qty)
     })
     .join('；')
 }
@@ -546,36 +564,36 @@ const activeGroup = computed(() =>
         <el-button type="primary" plain :loading="syncing" @click="handleSyncFromOrders()">同步物流</el-button>
         <span class="hint">代发「发货」会同时回传订单中心与快递助手；也可「回传单号」单独补传</span>
       </div>
-      <el-table :data="soGroups" border stripe class="so-group-table">
+      <el-table :data="soGroupRows" border stripe class="so-group-table" row-key="key">
         <el-table-column label="销售单" width="160" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.refOrderNo }}</template>
+          <template #default="{ row }">{{ row.group.refOrderNo }}</template>
         </el-table-column>
-        <el-table-column label="商品" min-width="220" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.productSummary }}</template>
+        <el-table-column label="规格" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">{{ formatSpecLabel(row.line.skuSpecs, row.line.qty) }}</template>
         </el-table-column>
         <el-table-column label="待发" width="80" align="center">
           <template #default="{ row }">
-            <span :class="{ muted: row.remainingQty <= 0 }">{{ row.remainingQty }}</span>
+            <span :class="{ muted: row.line.remaining <= 0 }">{{ row.line.remaining }}</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="100" align="center">
-          <template #default="{ row }">{{ row.shipStatusHint }}</template>
+          <template #default="{ row }">{{ row.lineStatus }}</template>
         </el-table-column>
         <el-table-column v-if="!readonly" label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <el-button
               type="primary"
               link
-              :disabled="row.remainingQty <= 0"
-              @click="openCreateDropship(row)"
+              :disabled="row.group.remainingQty <= 0"
+              @click="openCreateDropship(row.group)"
             >
               发货
             </el-button>
             <el-button
               type="success"
               link
-              :disabled="!row.refSoId"
-              @click="openCallback(row)"
+              :disabled="!row.group.refSoId"
+              @click="openCallback(row.group)"
             >
               回传单号
             </el-button>
@@ -618,8 +636,8 @@ const activeGroup = computed(() =>
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="对应商品" min-width="220" show-overflow-tooltip>
-        <template #default="{ row }">{{ shipmentProductText(row) }}</template>
+      <el-table-column label="对应规格" min-width="220" show-overflow-tooltip>
+        <template #default="{ row }">{{ shipmentSpecText(row) }}</template>
       </el-table-column>
       <el-table-column label="收件人" width="100" show-overflow-tooltip>
         <template #default="{ row }">{{ row.receiverName || '—' }}</template>
@@ -691,11 +709,8 @@ const activeGroup = computed(() =>
                 <span v-else class="muted">—</span>
               </template>
             </el-table-column>
-            <el-table-column label="商品" min-width="160" show-overflow-tooltip>
-              <template #default="{ row }">
-                <div>{{ row.productName }}</div>
-                <div v-if="row.skuSpecs" class="sub">{{ row.skuSpecs }}</div>
-              </template>
+            <el-table-column label="规格" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">{{ formatSpecLabel(row.skuSpecs) }}</template>
             </el-table-column>
             <el-table-column label="商家编码" width="110" show-overflow-tooltip>
               <template #default="{ row }">{{ row.skuCode || '—' }}</template>

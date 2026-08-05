@@ -22,7 +22,7 @@ import {
   canDecryptOrder,
   isMaskedReceiver,
 } from '../../utils/orderCopy'
-import { dateShortcuts, last7DaysDateTimeRange, todayDateTimeRange } from '../../utils/date'
+import { dateShortcuts, dateRangeDefaultTime, last7DaysDateTimeRange, todayDateTimeRange } from '../../utils/date'
 import { onPOListIntent, takePOListIntent } from '../../utils/poListIntent'
 
 const route = useRoute()
@@ -125,18 +125,18 @@ function isMergeableDropship(row: PurchaseOrderListItem) {
   return true
 }
 
+function resolveFulfillmentFromRoute(): string {
+  const metaFt = route.meta.fulfillmentType
+  if (typeof metaFt === 'string' && metaFt) return metaFt
+  if (route.path.endsWith('/dropship')) return 'dropship'
+  if (route.path.endsWith('/stock-in')) return 'stock_in'
+  return ''
+}
+
 /** 从路径 / meta / 进入意图初始化筛选；不把筛选写回地址栏 */
 function applyRouteContext() {
-  const metaFt = route.meta.fulfillmentType
-  if (typeof metaFt === 'string' && metaFt) {
-    fulfillmentType.value = metaFt
-  } else if (route.path.endsWith('/dropship')) {
-    fulfillmentType.value = 'dropship'
-  } else if (route.path.endsWith('/stock-in')) {
-    fulfillmentType.value = 'stock_in'
-  } else {
-    fulfillmentType.value = ''
-  }
+  // 先按路由定类型，再允许工作台意图覆盖（防止落到「全部」）
+  fulfillmentType.value = resolveFulfillmentFromRoute()
 
   const intent = takePOListIntent()
   if (intent) {
@@ -145,6 +145,9 @@ function applyRouteContext() {
     payStatusFilter.value = ''
     excludeStatusesFilter.value = ''
 
+    if (intent.fulfillmentType) {
+      fulfillmentType.value = intent.fulfillmentType
+    }
     if (intent.statuses?.length) {
       if (intent.statuses.length === 1) {
         status.value = intent.statuses[0]
@@ -177,6 +180,13 @@ function applyRouteContext() {
     } else if (!(route.query.refSoId)) {
       refSoId.value = undefined
     }
+
+    // 意图带了类型时，校正到对应 Tab 路径
+    const target = listPathForType(fulfillmentType.value)
+    if (route.path !== target) {
+      void router.replace({ path: target, query: {} })
+      return
+    }
   } else if (!(route.query.refSoId)) {
     refSoId.value = undefined
   }
@@ -191,7 +201,7 @@ function applyRouteContext() {
   if (typeof q.status === 'string' && q.status) {
     status.value = q.status
   }
-  if (typeof q.fulfillmentType === 'string' && q.fulfillmentType && !fulfillmentType.value) {
+  if (typeof q.fulfillmentType === 'string' && q.fulfillmentType) {
     fulfillmentType.value = q.fulfillmentType
   }
   if (Object.keys(q).length > 0) {
@@ -360,10 +370,41 @@ function openCreate() {
   router.push({ path: '/purchase-orders/create', query })
 }
 
+const excludeFilterLabel = computed(() => {
+  if (!excludeStatusesFilter.value) return ''
+  const labels = excludeStatusesFilter.value
+    .split(',')
+    .map((s) => statusLabel(s.trim()))
+    .filter(Boolean)
+  return labels.length ? `排除：${labels.join(' / ')}` : ''
+})
+
+function clearExcludeFilter() {
+  excludeStatusesFilter.value = ''
+  page.value = 1
+  void loadData()
+}
+
+function resetFilters() {
+  keyword.value = ''
+  status.value = ''
+  statusesFilter.value = ''
+  payStatusFilter.value = ''
+  excludeStatusesFilter.value = ''
+  supplierId.value = undefined
+  refSoId.value = undefined
+  createdRange.value = null
+  orderedRange.value = last7DaysDateTimeRange()
+  page.value = 1
+  void loadData()
+}
+
 function onFilterChange() {
-  // 手动改筛选时，单状态选择覆盖多状态意图
+  // 手动改可见状态时，清掉工作台带入的隐藏条件，避免「清了还筛不到」
   if (status.value) {
     statusesFilter.value = ''
+    excludeStatusesFilter.value = ''
+    payStatusFilter.value = ''
   }
   page.value = 1
   void loadData()
@@ -505,6 +546,7 @@ async function handleDelete(row: PurchaseOrderListItem) {
               end-placeholder="结束"
               value-format="YYYY-MM-DD HH:mm:ss"
               :shortcuts="dateShortcuts"
+              :default-time="dateRangeDefaultTime"
               clearable
               style="width: 360px"
               @change="onFilterChange"
@@ -519,12 +561,21 @@ async function handleDelete(row: PurchaseOrderListItem) {
               end-placeholder="结束"
               value-format="YYYY-MM-DD HH:mm:ss"
               :shortcuts="dateShortcuts"
+              :default-time="dateRangeDefaultTime"
               clearable
               style="width: 360px"
               @change="onFilterChange"
             />
           </el-form-item>
+          <el-form-item>
+            <el-button @click="resetFilters">重置筛选</el-button>
+          </el-form-item>
         </el-form>
+        <div v-if="excludeFilterLabel" class="intent-tags">
+          <el-tag closable type="warning" effect="plain" @close="clearExcludeFilter">
+            {{ excludeFilterLabel }}
+          </el-tag>
+        </div>
       </div>
 
       <el-table
@@ -646,11 +697,19 @@ async function handleDelete(row: PurchaseOrderListItem) {
 }
 .toolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 4px;
   margin-bottom: 12px;
 }
 .toolbar :deep(.el-form-item) {
   margin-bottom: 8px;
+}
+.intent-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0 6px;
 }
 .pager {
   margin-top: 16px;

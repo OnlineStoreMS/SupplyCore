@@ -72,14 +72,13 @@ const workCards = computed(() => [
   {
     key: 'dropship',
     label: '代发订单',
-    tip: '今日代发 · 点击查看',
+    tip: '今日全部类型 · 排除已取消',
     value: wb.value.dropshipPO,
     color: '#d48806',
     highlight: true,
     go: () => goPurchaseOrders(router, {
-      fulfillmentType: 'dropship',
       today: true,
-      excludeStatuses: ['draft', 'cancelled'],
+      excludeStatuses: ['cancelled'],
     }),
   },
   {

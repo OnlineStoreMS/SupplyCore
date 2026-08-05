@@ -14,7 +14,8 @@ import (
 	"supplycore/internal/repo"
 )
 
-// SettlementMergeService 按供应商结算周期，在设定时刻自动合并上一完整周期（T+1）的代发采购单。
+// SettlementMergeService 按供应商结算周期，在设定时刻自动合并代发采购单。
+// T+1：包含「今天(T)」+「上一周期(+1)」，例如按天=昨天+今天。
 type SettlementMergeService struct {
 	repos *repo.Repos
 	po    *PurchaseOrderService
@@ -173,10 +174,12 @@ func parseHHMM(v string) (hour, minute int, ok bool) {
 	return h, m, true
 }
 
-// settlementWindow 返回上一完整结算周期 [from, to)（T+1：到点合并上一周期，不含今天未完结当天）。
+// settlementWindow 返回合并时间窗 [from, to)（T+1：含今天 T + 上一周期）。
+// 按天=昨天+今天；按周=上周+本周迄今；按月=上月+本月迄今；自定义=近 N 天+今天。
 func settlementWindow(now time.Time, cycle string, customDays int) (time.Time, time.Time) {
 	y, m, d := now.Date()
 	startOfDay := time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+	endExclusive := startOfDay.AddDate(0, 0, 1) // 含今天全天
 	switch cycle {
 	case "week":
 		weekday := int(now.Weekday())
@@ -184,17 +187,17 @@ func settlementWindow(now time.Time, cycle string, customDays int) (time.Time, t
 			weekday = 7
 		}
 		thisMonday := startOfDay.AddDate(0, 0, -(weekday - 1))
-		return thisMonday.AddDate(0, 0, -7), thisMonday
+		return thisMonday.AddDate(0, 0, -7), endExclusive
 	case "month":
 		thisMonth := time.Date(y, m, 1, 0, 0, 0, 0, now.Location())
-		return thisMonth.AddDate(0, -1, 0), thisMonth
+		return thisMonth.AddDate(0, -1, 0), endExclusive
 	case "custom":
 		days := customDays
 		if days < 1 {
 			days = 1
 		}
-		return startOfDay.AddDate(0, 0, -days), startOfDay
-	default: // day：昨天 00:00 ~ 今天 00:00
-		return startOfDay.AddDate(0, 0, -1), startOfDay
+		return startOfDay.AddDate(0, 0, -days), endExclusive
+	default: // day：昨天 00:00 ~ 明天 00:00（昨天 + 今天）
+		return startOfDay.AddDate(0, 0, -1), endExclusive
 	}
 }

@@ -12,6 +12,7 @@ type DashboardStats struct {
 }
 
 type DashboardWorkbench struct {
+	// DropshipPO：工作台「代发订单」卡数量（今日全部类型、排除已取消；字段名历史兼容）
 	DropshipPO        int64 `json:"dropshipPO"`
 	StockInPO         int64 `json:"stockInPO"`
 	DraftPO           int64 `json:"draftPO"`
