@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -65,8 +66,18 @@ func roundMoney2(v float64) float64 {
 	return math.Round(v*100) / 100
 }
 
+type soPurchaseMeta struct {
+	id     uint64
+	order  *ordercore.OrderBrief
+	amount float64
+	hasAmt bool
+	expr   string
+	items  []*model.PurchaseOrderItem
+}
+
 // SyncDropshipPurchasePricesFromOrders 按供应商配置，从订单备注同步采购小计并反推单价。
-// source 为空则跳过。按 RefSoID 聚合订单金额，再按数量分摊到明细。
+// source 为空则跳过。
+// 快递助手合单发货时分发备注常复制到各子单：同运单号且金额相同/仅一侧填写时，整包只计一次。
 func (s *PurchaseOrderService) SyncDropshipPurchasePricesFromOrders(
 	ctx context.Context,
 	oc *ordercore.Client,
@@ -99,7 +110,6 @@ func (s *PurchaseOrderService) SyncDropshipPurchasePricesFromOrders(
 			continue
 		}
 
-		// 按销售单分组明细
 		bySo := map[uint64][]*model.PurchaseOrderItem{}
 		for i := range po.Items {
 			it := &po.Items[i]
@@ -108,7 +118,11 @@ func (s *PurchaseOrderService) SyncDropshipPurchasePricesFromOrders(
 			}
 			bySo[it.RefSoID] = append(bySo[it.RefSoID], it)
 		}
-		priceRows := make([]dto.UpdatePOItemPriceInput, 0)
+		if len(bySo) == 0 {
+			continue
+		}
+
+		metas := make([]soPurchaseMeta, 0, len(bySo))
 		for soID, items := range bySo {
 			order, ok := orderCache[soID]
 			if !ok {
@@ -119,11 +133,55 @@ func (s *PurchaseOrderService) SyncDropshipPurchasePricesFromOrders(
 				}
 				orderCache[soID] = order
 			}
-			amount, ok := ParseRemarkPurchaseAmount(remarkTextBySource(order, source))
-			if !ok {
+			amount, hasAmt := ParseRemarkPurchaseAmount(remarkTextBySource(order, source))
+			metas = append(metas, soPurchaseMeta{
+				id: soID, order: order, amount: amount, hasAmt: hasAmt,
+				expr: primaryExpressNo(order), items: items,
+			})
+		}
+
+		groups := map[string][]soPurchaseMeta{}
+		groupOrder := make([]string, 0)
+		for _, m := range metas {
+			key := m.expr
+			if key == "" {
+				key = fmt.Sprintf("so:%d", m.id)
+			} else {
+				key = "ex:" + key
+			}
+			if _, ok := groups[key]; !ok {
+				groupOrder = append(groupOrder, key)
+			}
+			groups[key] = append(groups[key], m)
+		}
+
+		priceRows := make([]dto.UpdatePOItemPriceInput, 0)
+		for _, key := range groupOrder {
+			group := groups[key]
+			if len(group) == 0 {
 				continue
 			}
-			priceRows = append(priceRows, allocateOrderPurchaseToItems(items, amount)...)
+			amount, ok := resolveGroupPurchaseAmount(group)
+			if !ok {
+				for _, m := range group {
+					if !m.hasAmt {
+						continue
+					}
+					priceRows = append(priceRows, allocateOrderPurchaseToItems(m.items, m.amount)...)
+				}
+				continue
+			}
+			// 合单：金额只落在第一单（按销售单 ID 升序），其余明细单价置 0
+			sort.Slice(group, func(i, j int) bool { return group[i].id < group[j].id })
+			primary := group[0]
+			if len(group) > 1 {
+				log.Printf("[sync-purchase-price] merge-ship fenfa on first so po=%d key=%s primary=%d amount=%.2f others=%d",
+					poID, key, primary.id, amount, len(group)-1)
+			}
+			priceRows = append(priceRows, allocateOrderPurchaseToItems(primary.items, amount)...)
+			for _, m := range group[1:] {
+				priceRows = append(priceRows, allocateOrderPurchaseToItems(m.items, 0)...)
+			}
 		}
 		if len(priceRows) == 0 {
 			continue
@@ -134,6 +192,42 @@ func (s *PurchaseOrderService) SyncDropshipPurchasePricesFromOrders(
 		updated++
 	}
 	return updated, nil
+}
+
+func primaryExpressNo(o *ordercore.OrderBrief) string {
+	if o == nil {
+		return ""
+	}
+	for _, sh := range o.Shipments {
+		no := strings.TrimSpace(sh.ExpressNo)
+		if no != "" {
+			return no
+		}
+	}
+	return ""
+}
+
+// resolveGroupPurchaseAmount 合单组内：有金额的备注若一致（或仅一侧填写），整包用该金额一次。
+func resolveGroupPurchaseAmount(group []soPurchaseMeta) (float64, bool) {
+	var amounts []float64
+	for _, m := range group {
+		if !m.hasAmt {
+			continue
+		}
+		amounts = append(amounts, m.amount)
+	}
+	if len(amounts) == 0 {
+		return 0, false
+	}
+	first := amounts[0]
+	for _, a := range amounts[1:] {
+		if math.Abs(a-first) > 0.009 {
+			// 同运单但备注金额不同：无法安全合并
+			return 0, false
+		}
+	}
+	// 仅当「合单」（多销售单）或单侧有金额时走整包一次；单销售单也适用
+	return first, true
 }
 
 // SyncPurchasePricesForPOIfConfigured 读取供应商配置，若开启则对该代发单同步采购价。

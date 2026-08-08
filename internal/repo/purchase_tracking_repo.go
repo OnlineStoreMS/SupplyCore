@@ -81,6 +81,18 @@ func (r *ShipmentRepo) Create(s *model.PurchaseShipment, items []model.PurchaseS
 	})
 }
 
+// AddItems 向已有物流追加明细（快递助手合单发货：多销售单共用同一运单号）。
+func (r *ShipmentRepo) AddItems(shipmentID uint64, items []model.PurchaseShipmentItem) error {
+	if shipmentID == 0 || len(items) == 0 {
+		return nil
+	}
+	for i := range items {
+		items[i].TenantID = r.tenantID
+		items[i].ShipmentID = shipmentID
+	}
+	return r.db.Create(&items).Error
+}
+
 func (r *ShipmentRepo) Save(s *model.PurchaseShipment) error {
 	return r.db.Save(s).Error
 }
