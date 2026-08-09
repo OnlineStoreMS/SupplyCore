@@ -18,10 +18,93 @@ export function formatAddress(addr?: OrderAddressBrief | null) {
   return parts.join(' ') || '-'
 }
 
+function looksMasked(s?: string | null) {
+  return /[*＊]/.test(String(s || ''))
+}
+
+/**
+ * 是否已是明文收件信息（与订单中心 orderHasPlainReceiver 一致）。
+ * 优先用地址簿字段，避免单头仍残留脱敏时误判为未解密。
+ */
+export function hasPlainReceiver(order: Pick<OrderBrief, 'buyerName' | 'buyerPhone' | 'address'>) {
+  let name = (order.buyerName || '').trim()
+  let phone = (order.buyerPhone || '').trim()
+  let full = ''
+  let detail = ''
+  if (order.address) {
+    if (order.address.name?.trim()) name = order.address.name.trim()
+    if (order.address.phone?.trim()) phone = order.address.phone.trim()
+    full = (order.address.fullText || '').trim()
+    detail = (order.address.address || '').trim()
+  }
+  const joined = [name, phone, full, detail].map((s) => s.trim()).filter(Boolean).join(' ')
+  if (!joined) return false
+  return !looksMasked(name) && !looksMasked(phone) && !looksMasked(full) && !looksMasked(detail)
+}
+
 /** 是否仍为脱敏地址（含 *） */
 export function isMaskedReceiver(order: Pick<OrderBrief, 'buyerName' | 'buyerPhone' | 'address'>) {
-  const text = [order.buyerName, order.buyerPhone, formatAddress(order.address)].join(' ')
-  return /[*＊]/.test(text)
+  return !hasPlainReceiver(order)
+}
+
+const DECRYPTED_ORDERS_KEY = 'supplycore.decryptedOrders'
+
+type DecryptedOrderCache = Record<string, OrderBrief>
+
+function readDecryptedOrderCache(): DecryptedOrderCache {
+  try {
+    const raw = sessionStorage.getItem(DECRYPTED_ORDERS_KEY)
+    if (!raw) return {}
+    const obj = JSON.parse(raw) as unknown
+    if (!obj || typeof obj !== 'object') return {}
+    return obj as DecryptedOrderCache
+  } catch {
+    return {}
+  }
+}
+
+function writeDecryptedOrderCache(cache: DecryptedOrderCache) {
+  sessionStorage.setItem(DECRYPTED_ORDERS_KEY, JSON.stringify(cache))
+}
+
+/** 缓存本会话已解密的销售单明文；复制时优先用缓存，避免再次打解密接口 */
+export function markOrdersDecrypted(orders: Array<number | OrderBrief>) {
+  try {
+    const cache = readDecryptedOrderCache()
+    for (const item of orders) {
+      if (typeof item === 'number') {
+        if (item > 0 && !cache[String(item)]) {
+          cache[String(item)] = { id: item } as OrderBrief
+        }
+        continue
+      }
+      if (item?.id > 0) {
+        cache[String(item.id)] = item
+      }
+    }
+    writeDecryptedOrderCache(cache)
+  } catch {
+    // ignore
+  }
+}
+
+export function getCachedDecryptedOrder(orderId: number): OrderBrief | null {
+  if (orderId <= 0) return null
+  return readDecryptedOrderCache()[String(orderId)] || null
+}
+
+export function wasOrderDecrypted(orderId: number) {
+  const cached = getCachedDecryptedOrder(orderId)
+  return !!cached && hasPlainReceiver(cached)
+}
+
+/** 用会话内明文覆盖接口返回的脱敏单 */
+export function applyDecryptedCache(orders: OrderBrief[]) {
+  return orders.map((o) => {
+    const cached = getCachedDecryptedOrder(o.id)
+    if (!cached || !hasPlainReceiver(cached)) return o
+    return { ...o, ...cached, address: cached.address || o.address, items: cached.items || o.items }
+  })
 }
 
 export function formatOrderCopyGoodsLines(items?: OrderItemBrief[]) {

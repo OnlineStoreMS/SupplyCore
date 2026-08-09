@@ -21,9 +21,12 @@ import { fetchShipments, type Shipment } from '../../api/poTracking'
 import { decryptOrders, fetchOrder, type OrderBrief } from '../../api/order'
 import { copyToClipboard } from '../../utils/clipboard'
 import {
+  applyDecryptedCache,
   buildMultiOrderCopyText,
   canDecryptOrder,
-  isMaskedReceiver,
+  hasPlainReceiver,
+  markOrdersDecrypted,
+  wasOrderDecrypted,
 } from '../../utils/orderCopy'
 import PoShipmentTab from './PoShipmentTab.vue'
 import PoPaymentTab from './PoPaymentTab.vue'
@@ -246,10 +249,11 @@ async function handleDelete() {
 
 function collectRefSoIds(order: PurchaseOrder): number[] {
   const ids = new Set<number>()
-  if (order.refSoId && order.refSoId > 0) ids.add(order.refSoId)
   for (const it of order.items || []) {
+    if (it.cancelled) continue
     if (it.refSoId && it.refSoId > 0) ids.add(it.refSoId)
   }
+  if (!ids.size && order.refSoId && order.refSoId > 0) ids.add(order.refSoId)
   return [...ids]
 }
 
@@ -268,13 +272,23 @@ async function handleDecrypt() {
   if (po.value?.fulfillmentType !== 'dropship') return
   decrypting.value = true
   try {
-    const orders = await loadLinkedOrders()
+    const orders = applyDecryptedCache(await loadLinkedOrders())
     const ecommerce = orders.filter((o) => canDecryptOrder(o))
     if (!ecommerce.length) {
       ElMessage.warning('关联销售单中无可解密的电商订单')
       return
     }
-    const data = await decryptOrders(ecommerce.map((o) => o.id))
+    const needDecrypt = ecommerce.filter((o) => !hasPlainReceiver(o) && !wasOrderDecrypted(o.id))
+    if (!needDecrypt.length) {
+      markOrdersDecrypted(ecommerce.filter((o) => hasPlainReceiver(o)))
+      ElMessage.success('关联销售单已是明文，无需再解密')
+      return
+    }
+    const data = await decryptOrders(needDecrypt.map((o) => o.id))
+    markOrdersDecrypted([
+      ...(data.items || []),
+      ...ecommerce.filter((o) => hasPlainReceiver(o)),
+    ])
     ElMessage.success(
       data.success > 1 ? `已依次解密 ${data.success} 笔电商订单` : '解密成功',
     )
@@ -289,12 +303,16 @@ async function handleCopy() {
   if (po.value?.fulfillmentType !== 'dropship') return
   copying.value = true
   try {
-    let orders = await loadLinkedOrders()
-    const needDecrypt = orders.filter((o) => canDecryptOrder(o) && isMaskedReceiver(o))
+    let orders = applyDecryptedCache(await loadLinkedOrders())
+    const needDecrypt = orders.filter(
+      (o) => canDecryptOrder(o) && !hasPlainReceiver(o) && !wasOrderDecrypted(o.id),
+    )
     if (needDecrypt.length) {
       const data = await decryptOrders(needDecrypt.map((o) => o.id))
+      markOrdersDecrypted(data.items || [])
       const byId = new Map((data.items || []).map((o) => [o.id, o]))
       orders = orders.map((o) => byId.get(o.id) || o)
+      orders = applyDecryptedCache(orders)
     }
     const text = buildMultiOrderCopyText(orders)
     if (!text.trim()) {
