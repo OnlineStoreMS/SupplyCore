@@ -239,33 +239,15 @@ function formatSpecLabel(specs?: string, qty?: number) {
   return qty != null ? `${s} ×${qty}` : s
 }
 
-function shipmentSpecLines(row: Shipment): string[] {
+function shipmentSpecText(row: Shipment) {
   const items = row.items || []
-  if (!items.length) return []
-  return items.map((it) => {
-    const poItem = itemLabelMap.value.get(it.poItemId)
-    return formatSpecLabel(poItem?.skuSpecs, it.qty)
-  })
-}
-
-/** 同销售单多规格分行时，合并「销售单」列单元格 */
-function soGroupSpanMethod({
-  row,
-  column,
-  rowIndex,
-}: {
-  row: { group: SalesOrderGroup; line: LinePick }
-  column: { label?: string }
-  rowIndex: number
-}) {
-  if (column.label !== '销售单' && column.label !== '操作') return undefined
-  const rows = soGroupRows.value
-  const key = row.group.key
-  const first = rows.findIndex((r) => r.group.key === key)
-  if (first !== rowIndex) return { rowspan: 0, colspan: 0 }
-  let span = 0
-  for (let i = first; i < rows.length && rows[i].group.key === key; i++) span++
-  return { rowspan: span, colspan: 1 }
+  if (!items.length) return '—'
+  return items
+    .map((it) => {
+      const poItem = itemLabelMap.value.get(it.poItemId)
+      return formatSpecLabel(poItem?.skuSpecs, it.qty)
+    })
+    .join('；')
 }
 
 function shipmentSalesOrders(row: Shipment) {
@@ -464,12 +446,12 @@ async function openCallback(group: SalesOrderGroup) {
     ElMessage.warning('该销售单缺少订单中心 ID，无法回传')
     return
   }
-  // 仅带出「本销售单明细」已登记的物流，禁止回落到同采购单其它销售单的单号
+  // 优先带出本销售单已登记的物流，避免再填一次
   const itemIds = new Set(group.lines.map((l) => l.poItemId))
   const withTracking = list.value.find((s) => {
     if (!s.trackingNo?.trim()) return false
     return (s.items || []).some((it) => itemIds.has(it.poItemId))
-  })
+  }) || list.value.find((s) => !!s.trackingNo?.trim())
 
   callbackForm.value = {
     refSoId: group.refSoId,
@@ -582,21 +564,12 @@ const activeGroup = computed(() =>
         <el-button type="primary" plain :loading="syncing" @click="handleSyncFromOrders()">同步物流</el-button>
         <span class="hint">代发「发货」会同时回传订单中心与快递助手；也可「回传单号」单独补传</span>
       </div>
-      <el-table
-        :data="soGroupRows"
-        border
-        stripe
-        class="so-group-table"
-        row-key="key"
-        :span-method="soGroupSpanMethod"
-      >
+      <el-table :data="soGroupRows" border stripe class="so-group-table" row-key="key">
         <el-table-column label="销售单" width="160" show-overflow-tooltip>
           <template #default="{ row }">{{ row.group.refOrderNo }}</template>
         </el-table-column>
-        <el-table-column label="规格" min-width="220">
-          <template #default="{ row }">
-            <div class="spec-line">{{ formatSpecLabel(row.line.skuSpecs, row.line.qty) }}</div>
-          </template>
+        <el-table-column label="规格" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">{{ formatSpecLabel(row.line.skuSpecs, row.line.qty) }}</template>
         </el-table-column>
         <el-table-column label="待发" width="80" align="center">
           <template #default="{ row }">
@@ -663,13 +636,8 @@ const activeGroup = computed(() =>
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="对应规格" min-width="220">
-        <template #default="{ row }">
-          <div v-if="shipmentSpecLines(row).length" class="spec-lines">
-            <div v-for="(line, idx) in shipmentSpecLines(row)" :key="idx" class="spec-line">{{ line }}</div>
-          </div>
-          <span v-else class="muted">—</span>
-        </template>
+      <el-table-column label="对应规格" min-width="220" show-overflow-tooltip>
+        <template #default="{ row }">{{ shipmentSpecText(row) }}</template>
       </el-table-column>
       <el-table-column label="收件人" width="100" show-overflow-tooltip>
         <template #default="{ row }">{{ row.receiverName || '—' }}</template>
@@ -876,16 +844,6 @@ const activeGroup = computed(() =>
 }
 .so-group-table {
   margin-bottom: 8px;
-}
-.spec-lines {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.spec-line {
-  white-space: normal;
-  word-break: break-all;
-  line-height: 1.4;
 }
 .sub {
   color: var(--el-text-color-secondary);

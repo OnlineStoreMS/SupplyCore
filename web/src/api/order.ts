@@ -64,24 +64,10 @@ export async function fetchOrder(id: number) {
   return unwrap<OrderBrief>(await client.get(`/orders/${id}`))
 }
 
-/** 多单解密（快递助手逐单较慢）；默认按批调用，避免一次请求拖过前端 30s 超时。 */
-export async function decryptOrders(orderIds: number[], chunkSize = 5) {
-  const ids = [...new Set(orderIds.filter((id) => id > 0))]
-  if (!ids.length) {
-    return { items: [] as OrderBrief[], success: 0 }
-  }
-  const items: OrderBrief[] = []
-  let success = 0
-  const size = Math.max(1, chunkSize)
-  for (let i = 0; i < ids.length; i += size) {
-    const chunk = ids.slice(i, i + size)
-    const data = unwrap<{ items: OrderBrief[]; success: number }>(
-      await client.post('/orders/decrypt', { orderIds: chunk }, { timeout: 180000 }),
-    )
-    items.push(...(data.items || []))
-    success += Number(data.success || 0)
-  }
-  return { items, success }
+export async function decryptOrders(orderIds: number[]) {
+  return unwrap<{ items: OrderBrief[]; success: number }>(
+    await client.post('/orders/decrypt', { orderIds }),
+  )
 }
 
 export async function shipOrder(
