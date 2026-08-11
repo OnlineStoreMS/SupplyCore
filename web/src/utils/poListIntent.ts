@@ -10,6 +10,8 @@ export type POListIntent = {
   payStatuses?: string[]
   /** 排除状态，如 draft,cancelled */
   excludeStatuses?: string[]
+  /** 仍有未登记物流明细（工作台「待发货」） */
+  awaitingLogistics?: boolean
   refSoId?: number
   /** 工作台「今日」：按业务日 COALESCE(ordered_at, created_at) 筛今天 */
   today?: boolean
@@ -36,6 +38,17 @@ export function setPOListIntent(intent: POListIntent) {
     sessionStorage.setItem(KEY, JSON.stringify(intent))
   } catch {
     // ignore
+  }
+}
+
+/** 读取意图但不清除 */
+export function peekPOListIntent(): POListIntent | null {
+  try {
+    const raw = sessionStorage.getItem(KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as POListIntent
+  } catch {
+    return null
   }
 }
 

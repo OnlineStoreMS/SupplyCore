@@ -17,7 +17,8 @@ type DashboardWorkbench struct {
 	StockInPO         int64 `json:"stockInPO"`
 	DraftPO           int64 `json:"draftPO"`
 	OrderedPO         int64 `json:"orderedPO"`
-	UnpaidPO          int64 `json:"unpaidPO"`
+	UnpaidPO int64 `json:"unpaidPO"`
+	// InTransitPO：工作台「待发货」数量（仍有未登记物流）；字段名历史兼容
 	InTransitPO       int64 `json:"inTransitPO"`
 	PartialReceivedPO int64 `json:"partialReceivedPO"`
 	ActiveOffers      int64 `json:"activeOffers"`

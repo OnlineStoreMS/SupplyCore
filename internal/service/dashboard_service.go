@@ -36,11 +36,6 @@ func (s *DashboardService) Stats() (*dto.DashboardStats, error) {
 		model.POStatusShipped,
 		model.POStatusPartialReceived,
 	}
-	shippedStatuses := []string{
-		model.POStatusPartialShipped,
-		model.POStatusShipped,
-	}
-
 	out := &dto.DashboardStats{}
 
 	var err error
@@ -60,7 +55,8 @@ func (s *DashboardService) Stats() (*dto.DashboardStats, error) {
 	if out.Workbench.UnpaidPO, err = r.CountUnpaidPOsSince(&today); err != nil {
 		return nil, err
 	}
-	if out.Workbench.InTransitPO, err = r.CountPOsByStatusesSince(shippedStatuses, &today); err != nil {
+	// InTransitPO 字段历史兼容：现表示「待发货」（仍有未登记物流明细）
+	if out.Workbench.InTransitPO, err = r.CountAwaitingLogisticsPOsSince(&today); err != nil {
 		return nil, err
 	}
 	if out.Workbench.PartialReceivedPO, err = r.CountPOsByStatusSince(model.POStatusPartialReceived, &today); err != nil {

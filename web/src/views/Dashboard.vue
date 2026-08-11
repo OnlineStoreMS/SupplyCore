@@ -126,15 +126,15 @@ const workCards = computed(() => [
     }),
   },
   {
-    key: 'transit',
-    label: '发货中',
-    tip: '今日部分发货 / 已发货',
+    key: 'waitShip',
+    label: '待发货',
+    tip: '今日仍有未登记物流',
     value: wb.value.inTransitPO,
     color: '#0f766e',
     highlight: false,
     go: () => goPurchaseOrders(router, {
       today: true,
-      statuses: ['partial_shipped', 'shipped'],
+      awaitingLogistics: true,
     }),
   },
   {

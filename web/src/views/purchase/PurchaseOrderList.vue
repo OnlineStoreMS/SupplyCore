@@ -23,7 +23,12 @@ import {
   isMaskedReceiver,
 } from '../../utils/orderCopy'
 import { dateShortcuts, dateRangeDefaultTime, last7DaysDateTimeRange, todayDateTimeRange } from '../../utils/date'
-import { onPOListIntent, takePOListIntent } from '../../utils/poListIntent'
+import { onPOListIntent, takePOListIntent, type POListIntent } from '../../utils/poListIntent'
+import {
+  loadPOListFilters,
+  savePOListFilters,
+  type POListFilterSnapshot,
+} from '../../utils/poListFilters'
 
 const route = useRoute()
 const router = useRouter()
@@ -39,6 +44,8 @@ const statusesFilter = ref('')
 const payStatusFilter = ref('')
 /** 排除状态（代发/采购/待付款卡片） */
 const excludeStatusesFilter = ref('')
+/** 工作台待发货：仍有未登记物流 */
+const awaitingLogistics = ref(false)
 const supplierId = ref<number | undefined>()
 const keyword = ref('')
 const refSoId = ref<number | undefined>()
@@ -83,18 +90,22 @@ const activeTab = computed({
   get: () => fulfillmentType.value || 'all',
   set: (v: string) => {
     const ft = v === 'all' ? '' : v
+    // 离开当前 Tab 前先落盘，切到目标 Tab 时再恢复各自记忆
+    persistFilters()
     fulfillmentType.value = ft
-    page.value = 1
     selected.value = []
-    status.value = ''
-    statusesFilter.value = ''
-    payStatusFilter.value = ''
-    excludeStatusesFilter.value = ''
+    const saved = loadPOListFilters(ft || 'all')
+    if (saved) {
+      applyFilterSnapshot(saved)
+    } else {
+      resetFilterFields()
+    }
     const target = listPathForType(ft)
     if (route.path !== target) {
       void router.replace(target)
     }
     void loadData()
+    persistFilters()
   },
 })
 
@@ -133,78 +144,145 @@ function resolveFulfillmentFromRoute(): string {
   return ''
 }
 
-/** 从路径 / meta / 进入意图初始化筛选；不把筛选写回地址栏 */
-function applyRouteContext() {
-  // 先按路由定类型，再允许工作台意图覆盖（防止落到「全部」）
-  fulfillmentType.value = resolveFulfillmentFromRoute()
-
-  const intent = takePOListIntent()
-  if (intent) {
-    status.value = ''
-    statusesFilter.value = ''
-    payStatusFilter.value = ''
-    excludeStatusesFilter.value = ''
-
-    if (intent.fulfillmentType) {
-      fulfillmentType.value = intent.fulfillmentType
-    }
-    if (intent.statuses?.length) {
-      if (intent.statuses.length === 1) {
-        status.value = intent.statuses[0]
-      } else {
-        statusesFilter.value = intent.statuses.join(',')
-      }
-    } else if (intent.status) {
-      status.value = intent.status
-    }
-    if (intent.payStatuses?.length) {
-      payStatusFilter.value = intent.payStatuses.join(',')
-    }
-    if (intent.excludeStatuses?.length) {
-      excludeStatusesFilter.value = intent.excludeStatuses.join(',')
-    }
-    if (intent.orderedDateStart && intent.orderedDateEnd) {
-      orderedRange.value = [
-        `${intent.orderedDateStart} 00:00:00`,
-        `${intent.orderedDateEnd} 23:59:59`,
-      ]
-      createdRange.value = null
-    } else if (intent.today) {
-      orderedRange.value = todayDateTimeRange()
-      createdRange.value = null
-    }
-    if (intent.refSoId) {
-      refSoId.value = intent.refSoId
-      createdRange.value = null
-      orderedRange.value = null
-    } else if (!(route.query.refSoId)) {
-      refSoId.value = undefined
-    }
-
-    // 意图带了类型时，校正到对应 Tab 路径
-    const target = listPathForType(fulfillmentType.value)
-    if (route.path !== target) {
-      void router.replace({ path: target, query: {} })
-      return
-    }
-  } else if (!(route.query.refSoId)) {
-    refSoId.value = undefined
+function filterSnapshot(): POListFilterSnapshot {
+  return {
+    status: status.value,
+    statusesFilter: statusesFilter.value,
+    payStatusFilter: payStatusFilter.value,
+    excludeStatusesFilter: excludeStatusesFilter.value,
+    awaitingLogistics: awaitingLogistics.value,
+    supplierId: supplierId.value,
+    keyword: keyword.value,
+    refSoId: refSoId.value,
+    createdRange: createdRange.value,
+    orderedRange: orderedRange.value,
+    page: page.value,
+    pageSize: pageSize.value,
+    sortBy: sortBy.value,
+    sortOrder: sortOrder.value,
   }
+}
 
-  // 兼容旧链接 ?refSoId= / ?status= / ?fulfillmentType= ，读完即清掉
-  const q = route.query
-  if (q.refSoId) {
-    refSoId.value = Number(q.refSoId)
+function persistFilters() {
+  savePOListFilters(fulfillmentType.value || 'all', filterSnapshot())
+}
+
+function applyFilterSnapshot(s: POListFilterSnapshot) {
+  status.value = s.status || ''
+  statusesFilter.value = s.statusesFilter || ''
+  payStatusFilter.value = s.payStatusFilter || ''
+  excludeStatusesFilter.value = s.excludeStatusesFilter || ''
+  awaitingLogistics.value = !!s.awaitingLogistics
+  supplierId.value = s.supplierId
+  keyword.value = s.keyword || ''
+  refSoId.value = s.refSoId
+  createdRange.value = s.createdRange ?? null
+  orderedRange.value = s.orderedRange ?? null
+  page.value = s.page > 0 ? s.page : 1
+  pageSize.value = s.pageSize > 0 ? s.pageSize : 20
+  sortBy.value = s.sortBy || 'orderedAt'
+  sortOrder.value = s.sortOrder === 'asc' ? 'asc' : 'desc'
+}
+
+function resetFilterFields() {
+  status.value = ''
+  statusesFilter.value = ''
+  payStatusFilter.value = ''
+  excludeStatusesFilter.value = ''
+  awaitingLogistics.value = false
+  supplierId.value = undefined
+  keyword.value = ''
+  refSoId.value = undefined
+  createdRange.value = null
+  orderedRange.value = last7DaysDateTimeRange()
+  page.value = 1
+  sortBy.value = 'orderedAt'
+  sortOrder.value = 'desc'
+}
+
+function applyIntent(intent: POListIntent) {
+  resetFilterFields()
+  if (intent.fulfillmentType) {
+    fulfillmentType.value = intent.fulfillmentType
+  }
+  if (intent.statuses?.length) {
+    if (intent.statuses.length === 1) {
+      status.value = intent.statuses[0]
+    } else {
+      statusesFilter.value = intent.statuses.join(',')
+    }
+  } else if (intent.status) {
+    status.value = intent.status
+  }
+  if (intent.payStatuses?.length) {
+    payStatusFilter.value = intent.payStatuses.join(',')
+  }
+  if (intent.excludeStatuses?.length) {
+    excludeStatusesFilter.value = intent.excludeStatuses.join(',')
+  }
+  if (intent.awaitingLogistics) {
+    awaitingLogistics.value = true
+  }
+  if (intent.orderedDateStart && intent.orderedDateEnd) {
+    orderedRange.value = [
+      `${intent.orderedDateStart} 00:00:00`,
+      `${intent.orderedDateEnd} 23:59:59`,
+    ]
+    createdRange.value = null
+  } else if (intent.today) {
+    orderedRange.value = todayDateTimeRange()
+    createdRange.value = null
+  }
+  if (intent.refSoId) {
+    refSoId.value = intent.refSoId
     createdRange.value = null
     orderedRange.value = null
   }
-  if (typeof q.status === 'string' && q.status) {
-    status.value = q.status
+}
+
+/**
+ * 初始化列表筛选：
+ * 1) 工作台意图 / URL query → 视为新筛选并覆盖记忆
+ * 2) 否则恢复 session 中该 Tab 的筛选（进详情返回）
+ * 3) 都没有则用默认（近 7 天采购时间）
+ */
+function initListState() {
+  fulfillmentType.value = resolveFulfillmentFromRoute()
+  const intent = takePOListIntent()
+  const q = route.query
+  const hasQuery = !!(q.refSoId || q.status || q.fulfillmentType)
+
+  if (intent) {
+    applyIntent(intent)
+    const target = listPathForType(fulfillmentType.value)
+    if (route.path !== target) {
+      void router.replace({ path: target, query: {} })
+      persistFilters()
+      return
+    }
+    persistFilters()
+  } else if (hasQuery) {
+    resetFilterFields()
+    if (q.refSoId) {
+      refSoId.value = Number(q.refSoId)
+      createdRange.value = null
+      orderedRange.value = null
+    }
+    if (typeof q.status === 'string' && q.status) {
+      status.value = q.status
+    }
+    if (typeof q.fulfillmentType === 'string' && q.fulfillmentType) {
+      fulfillmentType.value = q.fulfillmentType
+    }
+    persistFilters()
+  } else {
+    const saved = loadPOListFilters(fulfillmentType.value || 'all')
+    if (saved) {
+      applyFilterSnapshot(saved)
+    }
   }
-  if (typeof q.fulfillmentType === 'string' && q.fulfillmentType) {
-    fulfillmentType.value = q.fulfillmentType
-  }
-  if (Object.keys(q).length > 0) {
+
+  if (Object.keys(route.query).length > 0) {
     void router.replace({ path: listPathForType(fulfillmentType.value), query: {} })
   }
 }
@@ -226,6 +304,7 @@ async function loadData() {
       statuses: statusesFilter.value || undefined,
       payStatus: payStatusFilter.value || undefined,
       excludeStatuses: excludeStatusesFilter.value || undefined,
+      awaitingLogistics: awaitingLogistics.value || undefined,
       fulfillmentType: fulfillmentType.value || undefined,
       supplierId: supplierId.value,
       refSoId: refSoId.value,
@@ -250,25 +329,26 @@ async function loadData() {
 }
 
 onMounted(async () => {
-  applyRouteContext()
+  initListState()
   await loadSuppliers()
   await loadData()
 })
 
 const stopIntentListen = onPOListIntent(() => {
-  applyRouteContext()
-  page.value = 1
+  initListState()
   void loadData()
 })
-onUnmounted(() => stopIntentListen())
+onUnmounted(() => {
+  persistFilters()
+  stopIntentListen()
+})
 
 watch(
   () => route.path,
   () => {
     if (!route.path.startsWith('/purchase-orders')) return
     if (route.path.includes('/create') || /\/\d+/.test(route.path)) return
-    applyRouteContext()
-    page.value = 1
+    initListState()
     void loadData()
   },
 )
@@ -361,6 +441,7 @@ async function handleCopy(row: PurchaseOrderListItem) {
 }
 
 function openDetail(row: PurchaseOrderListItem) {
+  persistFilters()
   router.push(`/purchase-orders/${row.id}`)
 }
 
@@ -382,20 +463,20 @@ const excludeFilterLabel = computed(() => {
 function clearExcludeFilter() {
   excludeStatusesFilter.value = ''
   page.value = 1
+  persistFilters()
+  void loadData()
+}
+
+function clearAwaitingLogistics() {
+  awaitingLogistics.value = false
+  page.value = 1
+  persistFilters()
   void loadData()
 }
 
 function resetFilters() {
-  keyword.value = ''
-  status.value = ''
-  statusesFilter.value = ''
-  payStatusFilter.value = ''
-  excludeStatusesFilter.value = ''
-  supplierId.value = undefined
-  refSoId.value = undefined
-  createdRange.value = null
-  orderedRange.value = last7DaysDateTimeRange()
-  page.value = 1
+  resetFilterFields()
+  persistFilters()
   void loadData()
 }
 
@@ -405,8 +486,10 @@ function onFilterChange() {
     statusesFilter.value = ''
     excludeStatusesFilter.value = ''
     payStatusFilter.value = ''
+    awaitingLogistics.value = false
   }
   page.value = 1
+  persistFilters()
   void loadData()
 }
 
@@ -415,10 +498,19 @@ function onSortChange(payload: { prop: string; order: string | null }) {
     sortBy.value = 'orderedAt'
     sortOrder.value = 'desc'
   } else {
-    sortBy.value = payload.prop === 'createdAt' ? 'createdAt' : 'orderedAt'
+    if (payload.prop === 'createdAt') sortBy.value = 'createdAt'
+    else if (payload.prop === 'totalAmount') sortBy.value = 'totalAmount'
+    else sortBy.value = 'orderedAt'
     sortOrder.value = payload.order === 'ascending' ? 'asc' : 'desc'
   }
   page.value = 1
+  persistFilters()
+  void loadData()
+}
+
+function onPageChange(p: number) {
+  page.value = p
+  persistFilters()
   void loadData()
 }
 
@@ -571,8 +663,23 @@ async function handleDelete(row: PurchaseOrderListItem) {
             <el-button @click="resetFilters">重置筛选</el-button>
           </el-form-item>
         </el-form>
-        <div v-if="excludeFilterLabel" class="intent-tags">
-          <el-tag closable type="warning" effect="plain" @close="clearExcludeFilter">
+        <div v-if="excludeFilterLabel || awaitingLogistics" class="intent-tags">
+          <el-tag
+            v-if="awaitingLogistics"
+            closable
+            type="warning"
+            effect="plain"
+            @close="clearAwaitingLogistics"
+          >
+            待发货：未登记物流
+          </el-tag>
+          <el-tag
+            v-if="excludeFilterLabel"
+            closable
+            type="warning"
+            effect="plain"
+            @close="clearExcludeFilter"
+          >
             {{ excludeFilterLabel }}
           </el-tag>
         </div>
@@ -626,8 +733,11 @@ async function handleDelete(row: PurchaseOrderListItem) {
             {{ PAY_STATUS_MAP[row.payStatus] || row.payStatus }}
           </template>
         </el-table-column>
-        <el-table-column label="金额" width="120" align="right">
-          <template #default="{ row }">¥{{ row.totalAmount.toFixed(2) }}</template>
+        <el-table-column label="订单总额" width="110" align="right">
+          <template #default="{ row }">¥{{ Number(row.saleAmount || 0).toFixed(2) }}</template>
+        </el-table-column>
+        <el-table-column label="采购总额" width="110" align="right" sortable="custom" prop="totalAmount">
+          <template #default="{ row }">¥{{ Number(row.totalAmount || 0).toFixed(2) }}</template>
         </el-table-column>
         <el-table-column prop="itemCount" label="行数" width="70" align="center" />
         <el-table-column prop="orderedAt" label="采购时间" width="160" sortable="custom">
@@ -674,7 +784,7 @@ async function handleDelete(row: PurchaseOrderListItem) {
           :page-size="pageSize"
           :total="total"
           layout="total, prev, pager, next"
-          @current-change="(p: number) => { page = p; loadData() }"
+          @current-change="onPageChange"
         />
       </div>
     </el-card>

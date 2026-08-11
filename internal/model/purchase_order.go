@@ -3,7 +3,7 @@ package model
 const (
 	POStatusDraft           = "draft"
 	POStatusOrdered         = "ordered"
-	POStatusPaid            = "paid"
+	POStatusPaid            = "paid"            // 已付款
 	POStatusPartialShipped  = "partial_shipped" // 部分发货
 	POStatusShipped         = "shipped"         // 已发货（原 in_transit「运输中」）
 	POStatusPartialReceived = "partial_received"

@@ -39,11 +39,14 @@ func (h *PurchaseOrderHandler) List(c *gin.Context) {
 	if status == "in_transit" {
 		status = "shipped"
 	}
+	awaitingLogistics := c.Query("awaitingLogistics") == "1" ||
+		strings.EqualFold(c.Query("awaitingLogistics"), "true")
 	list, total, err := h.ps(c).List(repo.POListFilter{
 		Status: status, Statuses: splitCSV(c.Query("statuses")),
 		PayStatuses: splitCSV(c.Query("payStatus")), ExcludeStatuses: splitCSV(c.Query("excludeStatuses")),
-		FulfillmentType: c.Query("fulfillmentType"),
-		SupplierID: supplierID, RefSoID: refSoID, RefTraceID: c.Query("refTraceId"),
+		AwaitingLogistics: awaitingLogistics,
+		FulfillmentType:   c.Query("fulfillmentType"),
+		SupplierID:        supplierID, RefSoID: refSoID, RefTraceID: c.Query("refTraceId"),
 		Keyword: c.Query("keyword"), SortBy: c.Query("sortBy"), SortOrder: c.Query("sortOrder"),
 		CreatedAtStart: parsePOCreatedAtStart(c.Query("createdAtStart")),
 		CreatedAtEnd:   parsePOCreatedAtEndExclusive(c.Query("createdAtEnd")),

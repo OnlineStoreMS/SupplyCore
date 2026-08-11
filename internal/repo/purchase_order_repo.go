@@ -28,19 +28,37 @@ type POListFilter struct {
 	Statuses        []string // 多状态，优先于 Status
 	PayStatuses      []string // unpaid|partial|paid
 	ExcludeStatuses  []string
-	FulfillmentType string
-	SupplierID      uint64
-	RefSoID         uint64
-	RefTraceID      string
-	Keyword         string
-	CreatedAtStart  *time.Time
-	CreatedAtEnd    *time.Time // 含当日：传次日 00:00 时用 < End
-	OrderedAtStart  *time.Time
-	OrderedAtEnd    *time.Time // 含当日：传次日 00:00 时用 < End；按业务日 COALESCE(ordered_at, created_at)
-	SortBy          string // orderedAt | createdAt | id | totalAmount
-	SortOrder       string // asc | desc
-	Page            int
-	PageSize        int
+	// AwaitingLogistics：仍有未登记物流的明细（工作台「待发货」）
+	AwaitingLogistics bool
+	FulfillmentType   string
+	SupplierID        uint64
+	RefSoID           uint64
+	RefTraceID        string
+	Keyword           string
+	CreatedAtStart    *time.Time
+	CreatedAtEnd      *time.Time // 含当日：传次日 00:00 时用 < End
+	OrderedAtStart    *time.Time
+	OrderedAtEnd      *time.Time // 含当日：传次日 00:00 时用 < End；按业务日 COALESCE(ordered_at, created_at)
+	SortBy            string // orderedAt | createdAt | id | totalAmount
+	SortOrder         string // asc | desc
+	Page              int
+	PageSize          int
+}
+
+// scopeAwaitingLogistics 明细数量尚未被发货批次登记完（排除草稿/取消/已完成）。
+func scopeAwaitingLogistics(q *gorm.DB) *gorm.DB {
+	return q.Where("status NOT IN ?", []string{
+		model.POStatusDraft, model.POStatusCancelled, model.POStatusCompleted,
+	}).Where(`EXISTS (
+		SELECT 1 FROM purchase_order_items i
+		WHERE i.po_id = purchase_orders.id
+		  AND i.tenant_id = purchase_orders.tenant_id
+		  AND COALESCE(i.cancelled, false) = false
+		  AND i.qty > COALESCE((
+			SELECT SUM(si.qty) FROM purchase_shipment_items si
+			WHERE si.po_item_id = i.id AND si.tenant_id = i.tenant_id
+		  ), 0)
+	)`)
 }
 
 func (r *PurchaseOrderRepo) List(f POListFilter) ([]model.PurchaseOrder, int64, error) {
@@ -52,6 +70,9 @@ func (r *PurchaseOrderRepo) List(f POListFilter) ([]model.PurchaseOrder, int64, 
 	}
 	if len(f.ExcludeStatuses) > 0 {
 		q = q.Where("status NOT IN ?", f.ExcludeStatuses)
+	}
+	if f.AwaitingLogistics {
+		q = scopeAwaitingLogistics(q)
 	}
 	if len(f.PayStatuses) > 0 {
 		q = q.Where("pay_status IN ?", f.PayStatuses)

@@ -115,6 +115,16 @@ func (r *DashboardRepo) CountUnpaidPOsSince(dayStart *time.Time) (int64, error) 
 	return n, err
 }
 
+// CountAwaitingLogisticsPOsSince 工作台「待发货」：业务日内仍有未登记物流的明细。
+func (r *DashboardRepo) CountAwaitingLogisticsPOsSince(dayStart *time.Time) (int64, error) {
+	q := r.db.Model(&model.PurchaseOrder{}).Scopes(scopeTenant(r.tenantID))
+	q = scopeAwaitingLogistics(q)
+	q = scopePOBusinessDay(q, dayStart)
+	var n int64
+	err := q.Count(&n).Error
+	return n, err
+}
+
 // scopePOBusinessDay 按业务日筛选：COALESCE(ordered_at, created_at) 落在 [dayStart, dayStart+1)。
 func scopePOBusinessDay(q *gorm.DB, dayStart *time.Time) *gorm.DB {
 	if dayStart == nil {

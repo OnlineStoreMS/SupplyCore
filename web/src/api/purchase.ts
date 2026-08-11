@@ -54,6 +54,9 @@ export interface PurchaseOrderListItem {
   status: string
   payStatus: string
   fulfillmentType: string
+  /** 销售侧订单总额（实付合计） */
+  saleAmount?: number
+  /** 采购总额 */
   totalAmount: number
   currency: string
   itemCount: number
@@ -121,6 +124,8 @@ export async function fetchPurchaseOrders(params: {
   payStatus?: string
   /** 排除状态，逗号分隔 */
   excludeStatuses?: string
+  /** 仍有未登记物流的明细（工作台待发货） */
+  awaitingLogistics?: boolean
   fulfillmentType?: string
   supplierId?: number
   refSoId?: number
