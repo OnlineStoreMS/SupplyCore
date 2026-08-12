@@ -459,12 +459,6 @@ function clearExcludeFilter() {
   void loadData()
 }
 
-function clearAwaitingLogistics() {
-  page.value = 1
-  persistFilters()
-  void loadData()
-}
-
 function resetFilters() {
   resetFilterFields()
   persistFilters()
@@ -477,7 +471,7 @@ function onFilterChange() {
     statusesFilter.value = ''
     excludeStatusesFilter.value = ''
     payStatusFilter.value = ''
-    }
+  }
   page.value = 1
   persistFilters()
   void loadData()
