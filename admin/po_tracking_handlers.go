@@ -78,13 +78,7 @@ func (h *POTrackingHandler) SyncShipmentsFromOrders(c *gin.Context) {
 			in.RefSoID = id
 		}
 	}
-	auth := c.GetHeader("Authorization")
-	if !strings.HasPrefix(auth, "Bearer ") {
-		tok := authcontext.BearerToken(c)
-		if tok != "" {
-			auth = "Bearer " + tok
-		}
-	}
+	auth := authcontext.AuthorizationHeader(c)
 	result, err := h.ts(c).SyncShipmentsFromOrders(c.Request.Context(), poID, auth, &in)
 	if err != nil {
 		httputil.HandleServiceError(c, err)

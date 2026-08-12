@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"supplycore/internal/integrations/productcore"
+	"supplycore/internal/pkg/authcontext"
 	"supplycore/internal/pkg/httputil"
 	"supplycore/internal/pkg/response"
 
@@ -27,7 +28,7 @@ func (h *ProductSkuHandler) Search(c *gin.Context) {
 		return
 	}
 	page, pageSize := httputil.ParsePage(c)
-	auth := c.GetHeader("Authorization")
+	auth := authcontext.AuthorizationHeader(c)
 	list, total, err := h.pc.SearchSkus(c.Request.Context(), auth, keyword, page, pageSize)
 	if err != nil {
 		response.Fail(c, http.StatusBadGateway, err.Error())
@@ -38,7 +39,7 @@ func (h *ProductSkuHandler) Search(c *gin.Context) {
 
 func (h *ProductSkuHandler) SearchProducts(c *gin.Context) {
 	page, pageSize := httputil.ParsePage(c)
-	auth := c.GetHeader("Authorization")
+	auth := authcontext.AuthorizationHeader(c)
 	list, total, err := h.pc.SearchProducts(c.Request.Context(), auth, c.Query("keyword"), page, pageSize)
 	if err != nil {
 		response.Fail(c, http.StatusBadGateway, err.Error())
@@ -53,7 +54,7 @@ func (h *ProductSkuHandler) GetProductSkus(c *gin.Context) {
 		response.Fail(c, http.StatusBadRequest, "invalid product id")
 		return
 	}
-	auth := c.GetHeader("Authorization")
+	auth := authcontext.AuthorizationHeader(c)
 	item, err := h.pc.GetProductSkus(c.Request.Context(), auth, id)
 	if err != nil {
 		response.Fail(c, http.StatusBadGateway, err.Error())

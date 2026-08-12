@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"supplycore/internal/pkg/authcontext"
 	"supplycore/internal/pkg/httputil"
 	"supplycore/internal/pkg/response"
 	"supplycore/internal/integrations/warehousecore"
@@ -25,7 +26,7 @@ func (h *WarehouseHandler) List(c *gin.Context) {
 		return
 	}
 	page, pageSize := httputil.ParsePage(c)
-	auth := c.GetHeader("Authorization")
+	auth := authcontext.AuthorizationHeader(c)
 	list, total, err := h.wc.ListWarehouses(c.Request.Context(), auth, c.Query("keyword"), page, pageSize)
 	if err != nil {
 		response.Fail(c, http.StatusBadGateway, err.Error())
@@ -45,7 +46,7 @@ func (h *WarehouseHandler) ListLocations(c *gin.Context) {
 		return
 	}
 	page, pageSize := httputil.ParsePage(c)
-	auth := c.GetHeader("Authorization")
+	auth := authcontext.AuthorizationHeader(c)
 	list, total, err := h.wc.ListLocations(c.Request.Context(), auth, whID, page, pageSize)
 	if err != nil {
 		response.Fail(c, http.StatusBadGateway, err.Error())

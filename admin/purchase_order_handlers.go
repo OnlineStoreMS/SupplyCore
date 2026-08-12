@@ -207,13 +207,7 @@ func (h *PurchaseOrderHandler) SyncPurchasePrices(c *gin.Context) {
 		response.Fail(c, http.StatusBadGateway, "OrderCore 未配置")
 		return
 	}
-	auth := c.GetHeader("Authorization")
-	if !strings.HasPrefix(auth, "Bearer ") {
-		tok := authcontext.BearerToken(c)
-		if tok != "" {
-			auth = "Bearer " + tok
-		}
-	}
+	auth := authcontext.AuthorizationHeader(c)
 	n, err := h.ps(c).SyncPurchasePricesForPOIfConfigured(c.Request.Context(), h.oc, auth, id)
 	if err != nil {
 		httputil.HandleServiceError(c, err)
@@ -250,13 +244,7 @@ func (h *PurchaseOrderHandler) Delete(c *gin.Context) {
 	}
 	// 代发单删除后清空订单中心上的采购单号，避免同步误判「已有单」而不重建
 	if h.oc != nil && fulfillment == "dropship" && poNo != "" {
-		auth := c.GetHeader("Authorization")
-		if !strings.HasPrefix(auth, "Bearer ") {
-			tok := authcontext.BearerToken(c)
-			if tok != "" {
-				auth = "Bearer " + tok
-			}
-		}
+		auth := authcontext.AuthorizationHeader(c)
 		if _, rerr := h.oc.RelinkPurchaseOrder(c.Request.Context(), auth, []string{poNo}, ""); rerr != nil {
 			// 单据已删，解绑失败只记日志式返回附加信息
 			response.OK(c, gin.H{"deleted": true, "unlinkWarning": rerr.Error()})
@@ -278,13 +266,7 @@ func (h *PurchaseOrderHandler) Merge(c *gin.Context) {
 		return
 	}
 	if h.oc != nil && result != nil && len(result.MergedFromPoNos) > 0 && result.PoNo != "" {
-		auth := c.GetHeader("Authorization")
-		if !strings.HasPrefix(auth, "Bearer ") {
-			tok := authcontext.BearerToken(c)
-			if tok != "" {
-				auth = "Bearer " + tok
-			}
-		}
+		auth := authcontext.AuthorizationHeader(c)
 		n, rerr := h.oc.RelinkPurchaseOrder(c.Request.Context(), auth, result.MergedFromPoNos, result.PoNo)
 		if rerr != nil {
 			response.Fail(c, http.StatusBadRequest, "代发单已合并，但回写订单中心采购单号失败: "+rerr.Error())
@@ -318,13 +300,7 @@ func (h *PurchaseOrderHandler) DetachSalesOrder(c *gin.Context) {
 	}
 	unlinkWarning := ""
 	if h.oc != nil {
-		auth := c.GetHeader("Authorization")
-		if !strings.HasPrefix(auth, "Bearer ") {
-			tok := authcontext.BearerToken(c)
-			if tok != "" {
-				auth = "Bearer " + tok
-			}
-		}
+		auth := authcontext.AuthorizationHeader(c)
 		var orderIDs []uint64
 		var orderNos []string
 		if in.SoID > 0 {
