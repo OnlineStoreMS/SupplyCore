@@ -614,7 +614,7 @@ func (s *POTrackingService) syncPayStatus(po *model.PurchaseOrder) error {
 		// 付款累计金额 >= 采购总额时自动标记已付清
 		fresh.PayStatus = model.POPayStatusPaid
 		if fresh.Status == model.POStatusOrdered {
-			fresh.Status = model.POStatusPaid
+			fresh.Status = model.POStatusAwaitingShip
 		}
 	}
 	*po = *fresh
@@ -632,7 +632,15 @@ func (s *POTrackingService) syncShipmentStatus(poID uint64) error {
 	}
 	list, err := s.repos.Shipment.ForTenant(s.tenantID).ListByPO(poID)
 	if err != nil || len(list) == 0 {
-		return err
+		if err != nil {
+			return err
+		}
+		// 物流批次清空后回到待发货（付清后）
+		if po.Status == model.POStatusPartialShipped || po.Status == model.POStatusShipped || po.Status == model.POStatusPaid {
+			po.Status = model.POStatusAwaitingShip
+			return pr.Save(po)
+		}
+		return nil
 	}
 	shippedQty := map[uint64]int{}
 	hasInTransit, hasShipped, allDelivered := false, false, true

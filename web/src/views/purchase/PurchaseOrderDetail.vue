@@ -125,7 +125,7 @@ async function handleDetachSales(r: { no: string; soId: number }) {
   const paidLike =
     po.value.payStatus === 'paid' ||
     po.value.payStatus === 'partial' ||
-    ['paid', 'partial_shipped', 'shipped', 'partial_received', 'completed'].includes(po.value.status)
+    ['awaiting_ship', 'paid', 'partial_shipped', 'shipped', 'partial_received', 'completed'].includes(po.value.status)
   const tip = paidLike
     ? `确定从本代发单解绑销售单 ${r.no}？\n单据已付款/履约，仅划线解绑并回写订单中心为待分配，不冲销付款记录。`
     : `确定从本代发单解绑销售单 ${r.no}？将同步清空订单中心分配。`
@@ -347,7 +347,7 @@ async function handleCopy() {
           快捷标记已付款
         </el-button>
         <el-button
-          v-if="['paid', 'partial_shipped', 'shipped', 'partial_received'].includes(po.status)"
+          v-if="['awaiting_ship', 'paid', 'partial_shipped', 'shipped', 'partial_received'].includes(po.status)"
           type="success"
           :loading="acting"
           @click="doAction('完成采购', () => completePurchaseOrder(poId))"

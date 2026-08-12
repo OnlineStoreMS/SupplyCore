@@ -61,12 +61,38 @@ func scopeAwaitingLogistics(q *gorm.DB) *gorm.DB {
 	)`)
 }
 
+func expandAwaitingShipStatuses(statuses []string) []string {
+	out := make([]string, 0, len(statuses)+1)
+	seen := map[string]bool{}
+	for _, s := range statuses {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+		if s == model.POStatusAwaitingShip {
+			for _, alias := range model.POStatusesAwaitingShip() {
+				if !seen[alias] {
+					seen[alias] = true
+					out = append(out, alias)
+				}
+			}
+		}
+	}
+	return out
+}
+
 func (r *PurchaseOrderRepo) List(f POListFilter) ([]model.PurchaseOrder, int64, error) {
 	q := r.db.Model(&model.PurchaseOrder{}).Scopes(scopeTenant(r.tenantID))
 	if len(f.Statuses) > 0 {
-		q = q.Where("status IN ?", f.Statuses)
+		q = q.Where("status IN ?", expandAwaitingShipStatuses(f.Statuses))
 	} else if f.Status != "" {
-		q = q.Where("status = ?", f.Status)
+		if f.Status == model.POStatusAwaitingShip {
+			q = q.Where("status IN ?", model.POStatusesAwaitingShip())
+		} else {
+			q = q.Where("status = ?", f.Status)
+		}
 	}
 	if len(f.ExcludeStatuses) > 0 {
 		q = q.Where("status NOT IN ?", f.ExcludeStatuses)

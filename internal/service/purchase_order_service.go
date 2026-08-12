@@ -264,7 +264,7 @@ func (s *PurchaseOrderService) Submit(id uint64) (*dto.PurchaseOrderDetail, erro
 }
 
 func (s *PurchaseOrderService) MarkPaid(id uint64) (*dto.PurchaseOrderDetail, error) {
-	return s.transition(id, model.POStatusOrdered, model.POStatusPaid, func(po *model.PurchaseOrder) {
+	return s.transition(id, model.POStatusOrdered, model.POStatusAwaitingShip, func(po *model.PurchaseOrder) {
 		po.PayStatus = model.POPayStatusPaid
 	})
 }
@@ -279,8 +279,9 @@ func (s *PurchaseOrderService) Complete(id uint64) (*dto.PurchaseOrderDetail, er
 		return nil, err
 	}
 	allowed := map[string]bool{
-		model.POStatusPaid: true, model.POStatusPartialShipped: true,
-		model.POStatusShipped: true, model.POStatusPartialReceived: true,
+		model.POStatusAwaitingShip: true, model.POStatusPaid: true,
+		model.POStatusPartialShipped: true, model.POStatusShipped: true,
+		model.POStatusPartialReceived: true,
 	}
 	if !allowed[po.Status] {
 		return nil, ErrInvalidStatus

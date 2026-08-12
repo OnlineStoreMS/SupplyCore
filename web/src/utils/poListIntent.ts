@@ -10,8 +10,6 @@ export type POListIntent = {
   payStatuses?: string[]
   /** 排除状态，如 draft,cancelled */
   excludeStatuses?: string[]
-  /** 仍有未登记物流明细（工作台「待发货」） */
-  awaitingLogistics?: boolean
   refSoId?: number
   /** 工作台「今日」：按业务日 COALESCE(ordered_at, created_at) 筛今天 */
   today?: boolean

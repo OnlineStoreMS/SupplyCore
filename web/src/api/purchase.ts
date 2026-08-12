@@ -97,13 +97,21 @@ export interface PurchaseOrderInput {
 export const PO_STATUS_MAP: Record<string, { label: string; type: '' | 'success' | 'warning' | 'info' | 'danger' }> = {
   draft: { label: '草稿', type: 'info' },
   ordered: { label: '已下单', type: '' },
-  paid: { label: '已付款', type: 'warning' },
+  awaiting_ship: { label: '待发货', type: 'warning' },
+  /** 历史状态，等同待发货 */
+  paid: { label: '待发货', type: 'warning' },
   partial_shipped: { label: '部分发货', type: '' },
   shipped: { label: '已发货', type: 'warning' },
   partial_received: { label: '部分到货', type: '' },
   completed: { label: '已完成', type: 'success' },
   cancelled: { label: '已取消', type: 'danger' },
 }
+
+/** 筛选项（不含历史 paid，避免与 awaiting_ship 重复） */
+export const PO_STATUS_OPTIONS = Object.entries(PO_STATUS_MAP)
+  .filter(([k]) => k !== 'paid')
+  .map(([value, v]) => ({ value, label: v.label }))
+
 
 export const PAY_STATUS_MAP: Record<string, string> = {
   unpaid: '未付款',
@@ -124,8 +132,6 @@ export async function fetchPurchaseOrders(params: {
   payStatus?: string
   /** 排除状态，逗号分隔 */
   excludeStatuses?: string
-  /** 仍有未登记物流的明细（工作台待发货） */
-  awaitingLogistics?: boolean
   fulfillmentType?: string
   supplierId?: number
   refSoId?: number

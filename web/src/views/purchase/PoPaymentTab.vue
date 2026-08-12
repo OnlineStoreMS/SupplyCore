@@ -230,7 +230,7 @@ function payStatusLabel(status: string) {
           />
           <div class="form-hint">
             采购总额 ¥{{ Number(po.totalAmount || 0).toFixed(2) }}，待付 ¥{{ remainAmount.toFixed(2) }}；
-            累计付清后自动标记已付款
+            累计付清后自动进入待发货
           </div>
         </el-form-item>
         <el-form-item label="付款方式">

@@ -9,6 +9,7 @@ import {
   deletePurchaseOrder,
   mergePurchaseOrders,
   PO_STATUS_MAP,
+  PO_STATUS_OPTIONS,
   PAY_STATUS_MAP,
   FULFILLMENT_TYPE_MAP,
   type PurchaseOrderListItem,
@@ -44,8 +45,6 @@ const statusesFilter = ref('')
 const payStatusFilter = ref('')
 /** 排除状态（代发/采购/待付款卡片） */
 const excludeStatusesFilter = ref('')
-/** 工作台待发货：仍有未登记物流 */
-const awaitingLogistics = ref(false)
 const supplierId = ref<number | undefined>()
 const keyword = ref('')
 const refSoId = ref<number | undefined>()
@@ -150,7 +149,6 @@ function filterSnapshot(): POListFilterSnapshot {
     statusesFilter: statusesFilter.value,
     payStatusFilter: payStatusFilter.value,
     excludeStatusesFilter: excludeStatusesFilter.value,
-    awaitingLogistics: awaitingLogistics.value,
     supplierId: supplierId.value,
     keyword: keyword.value,
     refSoId: refSoId.value,
@@ -172,7 +170,6 @@ function applyFilterSnapshot(s: POListFilterSnapshot) {
   statusesFilter.value = s.statusesFilter || ''
   payStatusFilter.value = s.payStatusFilter || ''
   excludeStatusesFilter.value = s.excludeStatusesFilter || ''
-  awaitingLogistics.value = !!s.awaitingLogistics
   supplierId.value = s.supplierId
   keyword.value = s.keyword || ''
   refSoId.value = s.refSoId
@@ -189,7 +186,6 @@ function resetFilterFields() {
   statusesFilter.value = ''
   payStatusFilter.value = ''
   excludeStatusesFilter.value = ''
-  awaitingLogistics.value = false
   supplierId.value = undefined
   keyword.value = ''
   refSoId.value = undefined
@@ -219,9 +215,6 @@ function applyIntent(intent: POListIntent) {
   }
   if (intent.excludeStatuses?.length) {
     excludeStatusesFilter.value = intent.excludeStatuses.join(',')
-  }
-  if (intent.awaitingLogistics) {
-    awaitingLogistics.value = true
   }
   if (intent.orderedDateStart && intent.orderedDateEnd) {
     orderedRange.value = [
@@ -304,7 +297,6 @@ async function loadData() {
       statuses: statusesFilter.value || undefined,
       payStatus: payStatusFilter.value || undefined,
       excludeStatuses: excludeStatusesFilter.value || undefined,
-      awaitingLogistics: awaitingLogistics.value || undefined,
       fulfillmentType: fulfillmentType.value || undefined,
       supplierId: supplierId.value,
       refSoId: refSoId.value,
@@ -468,7 +460,6 @@ function clearExcludeFilter() {
 }
 
 function clearAwaitingLogistics() {
-  awaitingLogistics.value = false
   page.value = 1
   persistFilters()
   void loadData()
@@ -486,8 +477,7 @@ function onFilterChange() {
     statusesFilter.value = ''
     excludeStatusesFilter.value = ''
     payStatusFilter.value = ''
-    awaitingLogistics.value = false
-  }
+    }
   page.value = 1
   persistFilters()
   void loadData()
@@ -614,7 +604,7 @@ async function handleDelete(row: PurchaseOrderListItem) {
               style="width: 130px"
               @change="onFilterChange"
             >
-              <el-option v-for="(v, k) in PO_STATUS_MAP" :key="k" :label="v.label" :value="k" />
+              <el-option v-for="opt in PO_STATUS_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
             </el-select>
           </el-form-item>
           <el-form-item label="供应商">
@@ -663,18 +653,8 @@ async function handleDelete(row: PurchaseOrderListItem) {
             <el-button @click="resetFilters">重置筛选</el-button>
           </el-form-item>
         </el-form>
-        <div v-if="excludeFilterLabel || awaitingLogistics" class="intent-tags">
+        <div v-if="excludeFilterLabel" class="intent-tags">
           <el-tag
-            v-if="awaitingLogistics"
-            closable
-            type="warning"
-            effect="plain"
-            @close="clearAwaitingLogistics"
-          >
-            待发货：未登记物流
-          </el-tag>
-          <el-tag
-            v-if="excludeFilterLabel"
             closable
             type="warning"
             effect="plain"

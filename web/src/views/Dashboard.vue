@@ -128,13 +128,13 @@ const workCards = computed(() => [
   {
     key: 'waitShip',
     label: '待发货',
-    tip: '今日仍有未登记物流',
+    tip: '今日待发货',
     value: wb.value.inTransitPO,
     color: '#0f766e',
     highlight: false,
     go: () => goPurchaseOrders(router, {
       today: true,
-      awaitingLogistics: true,
+      status: 'awaiting_ship',
     }),
   },
   {

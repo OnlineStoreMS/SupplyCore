@@ -5,7 +5,6 @@ export type POListFilterSnapshot = {
   statusesFilter: string
   payStatusFilter: string
   excludeStatusesFilter: string
-  awaitingLogistics?: boolean
   supplierId?: number
   keyword: string
   refSoId?: number
