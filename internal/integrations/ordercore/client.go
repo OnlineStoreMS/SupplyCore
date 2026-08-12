@@ -160,10 +160,16 @@ func (c *Client) GetOrder(ctx context.Context, bearerToken string, id uint64) (*
 }
 
 type ShipRequest struct {
-	ExpressCompany string `json:"expressCompany"`
-	ExpressNo      string `json:"expressNo"`
-	Remark         string `json:"remark"`
-	Callback       bool   `json:"callback"`
+	ExpressCompany string          `json:"expressCompany"`
+	ExpressNo      string          `json:"expressNo"`
+	Remark         string          `json:"remark"`
+	Callback       bool            `json:"callback"`
+	Items          []ShipItemInput `json:"items,omitempty"`
+}
+
+type ShipItemInput struct {
+	OrderItemID uint64 `json:"orderItemId"`
+	Qty         int    `json:"qty"`
 }
 
 // ShipOrder 调用订单中心填写物流（电商订单可回传 StoreSyncAgent）。
