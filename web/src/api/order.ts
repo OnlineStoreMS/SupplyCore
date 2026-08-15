@@ -22,6 +22,17 @@ export interface OrderAddressBrief {
   fullText?: string
 }
 
+export interface OrderShipmentBrief {
+  id: number
+  shipmentNo?: string
+  expressCompany?: string
+  expressNo?: string
+  callbackStatus?: string
+  callbackMessage?: string
+  shippedAt?: string
+  remark?: string
+}
+
 export interface OrderBrief {
   id: number
   orderNo: string
@@ -43,6 +54,29 @@ export interface OrderBrief {
   createdAt?: string
   address?: OrderAddressBrief
   items?: OrderItemBrief[]
+  shipments?: OrderShipmentBrief[]
+}
+
+/** 从发货回传结果取出提示文案（失败时尽量保留快递助手/平台原始报错） */
+export function shipCallbackTip(order: OrderBrief | null | undefined, expressNo?: string) {
+  const want = (expressNo || '').trim()
+  const list = order?.shipments || []
+  let sh = want ? list.find((s) => (s.expressNo || '').trim() === want) : undefined
+  if (!sh && list.length) {
+    sh = [...list].sort((a, b) => (b.id || 0) - (a.id || 0))[0]
+  }
+  const status = (sh?.callbackStatus || '').toLowerCase()
+  const raw = (sh?.callbackMessage || '').trim()
+  if (status === 'failed') {
+    return { ok: false as const, message: raw || '平台回传失败（无详细报错）' }
+  }
+  if (status === 'succeeded') {
+    return { ok: true as const, message: raw || '已回传电商平台' }
+  }
+  if (status === 'skipped') {
+    return { ok: true as const, message: raw || '已记录发货（未回传平台）' }
+  }
+  return { ok: true as const, message: '已回传订单中心' }
 }
 
 export function formatOrderReceiverAddress(addr?: OrderAddressBrief | null) {

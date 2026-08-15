@@ -9,7 +9,7 @@ import {
   fetchAttachments, createAttachment,
   SHIPMENT_STATUS_MAP, type Shipment, type Attachment,
 } from '../../api/poTracking'
-import { fetchOrder, formatOrderReceiverAddress, shipOrder } from '../../api/order'
+import { fetchOrder, formatOrderReceiverAddress, shipCallbackTip, shipOrder } from '../../api/order'
 import { EXPRESS_COMPANIES, findExpressCompany } from '../../constants/expressCompanies'
 import ScanImageUpload from '../../components/ScanImageUpload.vue'
 
@@ -386,15 +386,27 @@ async function handleSave() {
     // 代发：同一弹窗内回传订单中心 → StoreSyncAgent → 快递助手手动发货
     let callbackMsg = ''
     const refSoId = activeGroup.value?.refSoId || selected.find((l) => l.refSoId)?.refSoId
+    const trackingNo = form.value.trackingNo.trim()
     if (isDropship.value && refSoId) {
       try {
-        await shipOrder(refSoId, {
+        const shipped = await shipOrder(refSoId, {
           expressCompany: form.value.carrierName,
-          expressNo: form.value.trackingNo.trim(),
+          expressNo: trackingNo,
           remark: form.value.remark || `代发采购单 ${props.po.poNo || props.poId} 发货回传`,
           callback: true,
         })
-        callbackMsg = '，并已回传电商平台'
+        const tip = shipCallbackTip(shipped, trackingNo)
+        if (!tip.ok) {
+          await ElMessageBox.alert(tip.message, '回传失败（快递助手/平台原始报错）', {
+            type: 'error',
+            confirmButtonText: '知道了',
+          })
+          dialogVisible.value = false
+          await loadData()
+          emit('refresh')
+          return
+        }
+        callbackMsg = tip.message ? `，${tip.message}` : '，并已回传电商平台'
         await handleSyncFromOrders(refSoId)
       } catch (e) {
         ElMessage.warning(`本地发货已保存，但回传失败：${(e as Error).message || '未知错误'}`)
@@ -481,15 +493,24 @@ async function handleCallbackShip() {
   }
   callbacking.value = true
   try {
-    await shipOrder(callbackForm.value.refSoId, {
+    const expressNo = callbackForm.value.trackingNo.trim()
+    const shipped = await shipOrder(callbackForm.value.refSoId, {
       expressCompany: callbackForm.value.carrierName,
-      expressNo: callbackForm.value.trackingNo.trim(),
+      expressNo,
       remark: callbackForm.value.remark || `代发采购单 ${props.po.poNo || props.poId} 回传`,
       callback: true,
     })
-    ElMessage.success('已回传订单中心')
-    callbackVisible.value = false
-    // 回传后补同步本采购单物流展示
+    const tip = shipCallbackTip(shipped, expressNo)
+    if (!tip.ok) {
+      await ElMessageBox.alert(tip.message, '回传失败（快递助手/平台原始报错）', {
+        type: 'error',
+        confirmButtonText: '知道了',
+      })
+    } else {
+      ElMessage.success(tip.message || '已回传订单中心')
+      callbackVisible.value = false
+    }
+    // 回传后补同步本采购单物流展示（成功或失败都刷新本地展示）
     await handleSyncFromOrders(callbackForm.value.refSoId)
   } catch (e) {
     ElMessage.error((e as Error).message || '回传失败')
