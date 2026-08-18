@@ -71,6 +71,7 @@ func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *Offe
 	g.GET("/purchase-orders/:id/shipments", trackH.ListShipments)
 	g.POST("/purchase-orders/:id/shipments", trackH.CreateShipment)
 	g.POST("/purchase-orders/:id/shipments/sync-from-orders", trackH.SyncShipmentsFromOrders)
+	g.POST("/purchase-orders/:id/items/:itemId/split", trackH.SplitItem)
 	g.PATCH("/purchase-orders/:id/shipments/:shipmentId/status", trackH.UpdateShipmentStatus)
 	g.DELETE("/purchase-orders/:id/shipments/:shipmentId", trackH.DeleteShipment)
 

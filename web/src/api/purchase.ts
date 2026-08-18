@@ -17,6 +17,10 @@ export interface PurchaseOrderItem {
   receivedQty?: number
   refSoId?: number
   refOrderNo?: string
+  refOrderItemId?: number
+  parentPoItemId?: number
+  splitKind?: string
+  shipPlanLineId?: number
   cancelled?: boolean
   remark?: string
 }

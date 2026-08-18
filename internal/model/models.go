@@ -193,6 +193,10 @@ type PurchaseOrderItem struct {
 	ReceivedQty         int        `gorm:"default:0" json:"receivedQty"`
 	RefSoID             uint64     `gorm:"index;default:0" json:"refSoId"`     // 关联销售单 ID
 	RefOrderNo          string     `gorm:"size:64;index" json:"refOrderNo"`    // 关联销售单号
+	RefOrderItemID      uint64     `gorm:"index;default:0" json:"refOrderItemId"` // 订单中心 order_items.id
+	ParentPOItemID      uint64     `gorm:"index;default:0" json:"parentPoItemId"` // 拆分父明细
+	SplitKind           string     `gorm:"size:16;default:''" json:"splitKind"`  // "" | partial | full
+	ShipPlanLineID      uint64     `gorm:"index;default:0" json:"shipPlanLineId"` // 拆分行稳定键（同步订单中心）
 	Cancelled           bool       `gorm:"default:false;index" json:"cancelled"` // 销售单撤回后代发明细作废
 	Remark              string     `gorm:"type:text" json:"remark"`
 	CreatedAt           time.Time  `json:"createdAt"`

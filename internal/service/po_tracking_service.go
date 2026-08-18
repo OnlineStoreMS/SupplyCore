@@ -73,6 +73,25 @@ func (s *POTrackingService) CreateShipment(poID uint64, in *dto.ShipmentInput) (
 	if strings.TrimSpace(in.TrackingNo) == "" {
 		return nil, ErrBadRequest
 	}
+	full, err := s.repos.PurchaseOrder.ForTenant(s.tenantID).GetWithItems(poID)
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range in.Items {
+		var hit *model.PurchaseOrderItem
+		for i := range full.Items {
+			if full.Items[i].ID == line.POItemID {
+				hit = &full.Items[i]
+				break
+			}
+		}
+		if hit == nil {
+			return nil, fmt.Errorf("发货明细不存在")
+		}
+		if !IsShippablePOItem(full.Items, *hit) {
+			return nil, fmt.Errorf("「%s」已拆分，请对拆分规格发货", firstNonEmpty(hit.SkuSpecs, hit.ProductName))
+		}
+	}
 	no, err := s.repos.Shipment.ForTenant(s.tenantID).NextShipmentNo()
 	if err != nil {
 		return nil, err
@@ -226,6 +245,27 @@ func (s *POTrackingService) SyncShipmentsFromOrders(ctx context.Context, poID ui
 		}
 		if g.orderNo == "" {
 			g.orderNo = order.OrderNo
+		}
+		// 先同步拆分规格，再挂物流
+		if serr := s.syncSplitChildrenFromOrder(full, &g.items, order); serr != nil {
+			out.Errors = append(out.Errors, fmt.Sprintf("%s 同步拆分: %v", coalesceOrderNo(g.orderNo, g.refSoID), serr))
+		}
+		// 刷新本单明细（含子行）后再算可发
+		if refreshed, rerr := s.repos.PurchaseOrder.ForTenant(s.tenantID).GetWithItems(poID); rerr == nil {
+			full = refreshed
+			g.items = nil
+			for _, it := range full.Items {
+				if it.Cancelled {
+					continue
+				}
+				ref := it.RefSoID
+				if ref == 0 {
+					ref = full.RefSoID
+				}
+				if ref == g.refSoID {
+					g.items = append(g.items, it)
+				}
+			}
 		}
 		receiverName := strings.TrimSpace(order.BuyerName)
 		receiverPhone := strings.TrimSpace(order.BuyerPhone)
@@ -431,9 +471,16 @@ func (s *POTrackingService) remainShipmentInputs(poID uint64, groupItems []model
 			shippedQty[it.POItemID] += it.Qty
 		}
 	}
+	allItems := groupItems
+	if full, err := s.repos.PurchaseOrder.ForTenant(s.tenantID).GetWithItems(poID); err == nil && full != nil {
+		allItems = full.Items
+	}
 	out := make([]dto.ShipmentItemInput, 0, len(groupItems))
 	for _, it := range groupItems {
 		if it.ID == 0 || it.Cancelled {
+			continue
+		}
+		if !IsShippablePOItem(allItems, it) {
 			continue
 		}
 		remain := it.Qty - shippedQty[it.ID]

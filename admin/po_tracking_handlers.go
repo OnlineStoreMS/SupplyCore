@@ -87,6 +87,31 @@ func (h *POTrackingHandler) SyncShipmentsFromOrders(c *gin.Context) {
 	response.OK(c, result)
 }
 
+func (h *POTrackingHandler) SplitItem(c *gin.Context) {
+	poID, err := parsePOID(c)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "invalid po id")
+		return
+	}
+	itemID, err := strconv.ParseUint(c.Param("itemId"), 10, 64)
+	if err != nil || itemID == 0 {
+		response.Fail(c, http.StatusBadRequest, "invalid item id")
+		return
+	}
+	var in dto.SplitPOItemInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		response.Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	auth := authcontext.AuthorizationHeader(c)
+	result, err := h.ts(c).SplitPOItem(c.Request.Context(), poID, itemID, auth, &in)
+	if err != nil {
+		httputil.HandleServiceError(c, err)
+		return
+	}
+	response.OK(c, result)
+}
+
 func (h *POTrackingHandler) UpdateShipmentStatus(c *gin.Context) {
 	poID, err := parsePOID(c)
 	if err != nil {

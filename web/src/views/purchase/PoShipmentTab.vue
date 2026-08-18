@@ -5,7 +5,7 @@ import { Delete } from '@element-plus/icons-vue'
 import type { PurchaseOrder, PurchaseOrderItem } from '../../api/purchase'
 import {
   fetchShipments, createShipment, updateShipmentStatus, deleteShipment,
-  syncShipmentsFromOrders,
+  syncShipmentsFromOrders, splitPurchaseOrderItem,
   fetchAttachments, createAttachment,
   SHIPMENT_STATUS_MAP, type Shipment, type Attachment,
 } from '../../api/poTracking'
@@ -26,6 +26,10 @@ const list = ref<Shipment[]>([])
 const attachments = ref<Attachment[]>([])
 const dialogVisible = ref(false)
 const callbackVisible = ref(false)
+const splitVisible = ref(false)
+const splitSaving = ref(false)
+const splitParent = ref<LinePick | null>(null)
+const splitLines = ref<{ skuName: string; qty: number; shipPlanLineId?: number }[]>([])
 const photoVisible = ref(false)
 const photoSaving = ref(false)
 const photoTarget = ref<Shipment | null>(null)
@@ -118,6 +122,13 @@ interface LinePick {
   shipQty: number
   refSoId?: number
   refOrderNo?: string
+  refOrderItemId?: number
+  parentPoItemId?: number
+  splitKind?: string
+  shipPlanLineId?: number
+  shippable: boolean
+  isSplitChild: boolean
+  isSplitParent: boolean
 }
 
 interface SalesOrderGroup {
@@ -155,28 +166,49 @@ function shippedQtyByItem(): Map<number, number> {
   return map
 }
 
+function isSplitChildItem(it: PurchaseOrderItem) {
+  return !!(it.splitKind || (it.parentPoItemId && it.parentPoItemId > 0))
+}
+
+function isShippableItem(it: PurchaseOrderItem, all: PurchaseOrderItem[]) {
+  if (it.cancelled) return false
+  if (isSplitChildItem(it)) return true
+  const hasFull = all.some((x) => !x.cancelled && x.splitKind === 'full')
+  if (hasFull) return false
+  return !all.some((x) => !x.cancelled && x.splitKind === 'partial' && x.parentPoItemId === it.id)
+}
+
 function rebuildLinePicks() {
   const shipped = shippedQtyByItem()
-  linePicks.value = (props.po.items || [])
-    .filter((it) => it.id && !it.cancelled)
-    .map((it) => {
-      const shippedQty = shipped.get(it.id!) || 0
-      const remaining = Math.max(0, it.qty - shippedQty)
-      return {
-        poItemId: it.id!,
-        productName: it.productName || '—',
-        skuCode: it.skuCode || '',
-        skuSpecs: it.skuSpecs || '',
-        picUrl: it.picUrl,
-        qty: it.qty,
-        shippedQty,
-        remaining,
-        selected: !isDropship.value && remaining > 0,
-        shipQty: remaining > 0 ? remaining : 1,
-        refSoId: it.refSoId || 0,
-        refOrderNo: it.refOrderNo || '',
-      }
-    })
+  const all = (props.po.items || []).filter((it) => it.id && !it.cancelled)
+  linePicks.value = all.map((it) => {
+    const shippedQty = shipped.get(it.id!) || 0
+    const remaining = Math.max(0, it.qty - shippedQty)
+    const shippable = isShippableItem(it, all)
+    const isSplitChild = isSplitChildItem(it)
+    const isSplitParent = !isSplitChild && all.some((x) => x.splitKind === 'partial' && x.parentPoItemId === it.id)
+    return {
+      poItemId: it.id!,
+      productName: it.productName || '—',
+      skuCode: it.skuCode || '',
+      skuSpecs: it.skuSpecs || '',
+      picUrl: it.picUrl,
+      qty: it.qty,
+      shippedQty,
+      remaining,
+      selected: false,
+      shipQty: remaining > 0 ? remaining : 1,
+      refSoId: it.refSoId || 0,
+      refOrderNo: it.refOrderNo || '',
+      refOrderItemId: it.refOrderItemId || 0,
+      parentPoItemId: it.parentPoItemId || 0,
+      splitKind: it.splitKind || '',
+      shipPlanLineId: it.shipPlanLineId || 0,
+      shippable,
+      isSplitChild,
+      isSplitParent,
+    }
+  })
 }
 
 /** 销售单展示名：优先单号，其次订单中心 ID；都没有则「未关联」（手工代发） */
@@ -217,7 +249,7 @@ function rebuildSoGroups() {
       map.set(key, g)
     }
     g.lines.push(line)
-    g.remainingQty += line.remaining
+    if (line.shippable) g.remainingQty += line.remaining
   }
   const groups = [...map.values()]
   for (const g of groups) {
@@ -228,24 +260,50 @@ function rebuildSoGroups() {
   soGroups.value = groups
 }
 
-/** 待发明细行（代发按销售单聚合后展开；入仓一行一明细） */
+/** 待发明细树：父行 + └ 拆分子行（代发按销售单分组） */
 const soGroupRows = computed(() => {
   const rows: {
     key: string
     group: SalesOrderGroup
     line: LinePick
     lineStatus: string
+    isSplitChild: boolean
+    isSplitParent: boolean
   }[] = []
   for (const g of soGroups.value) {
+    const childrenByParent = new Map<number, LinePick[]>()
+    const roots: LinePick[] = []
     for (const line of g.lines) {
-      const done = line.remaining <= 0
-      const partial = line.shippedQty > 0 && !done
-      rows.push({
-        key: `${g.key}:${line.poItemId}`,
-        group: g,
-        line,
-        lineStatus: done ? '已登记物流' : partial ? '部分发货' : '待发货',
-      })
+      if (line.isSplitChild && line.parentPoItemId) {
+        const list = childrenByParent.get(line.parentPoItemId) || []
+        list.push(line)
+        childrenByParent.set(line.parentPoItemId, list)
+        continue
+      }
+      roots.push(line)
+    }
+    for (const root of roots) {
+      const kids = childrenByParent.get(root.poItemId) || []
+      const pushLine = (line: LinePick, isChild: boolean, isParent: boolean) => {
+        const done = line.shippable ? line.remaining <= 0 : (kids.length > 0 && kids.every((k) => k.remaining <= 0))
+        const partial = line.shippable
+          ? (line.shippedQty > 0 && line.remaining > 0)
+          : kids.some((k) => k.shippedQty > 0) && !kids.every((k) => k.remaining <= 0)
+        let status = '待发货'
+        if (!line.shippable && kids.length) status = done ? '已登记物流' : partial ? '部分发货' : '已拆分'
+        else if (done) status = '已登记物流'
+        else if (partial) status = '部分发货'
+        rows.push({
+          key: `${g.key}:${line.poItemId}`,
+          group: g,
+          line,
+          lineStatus: status,
+          isSplitChild: isChild,
+          isSplitParent: isParent,
+        })
+      }
+      pushLine(root, false, kids.length > 0)
+      for (const ch of kids) pushLine(ch, true, false)
     }
   }
   return rows
@@ -344,18 +402,21 @@ async function fillReceiverFromOrder(soId: number) {
   }
 }
 
-async function openCreateDropship(group: SalesOrderGroup) {
+async function openCreateDropship(group: SalesOrderGroup, focus?: LinePick) {
   if (group.remainingQty <= 0) {
     ElMessage.warning('该销售单明细已全部关联物流')
     return
   }
   resetForm()
   activeGroupKey.value = group.key
-  linePicks.value = group.lines.map((l) => ({
-    ...l,
-    selected: l.remaining > 0,
-    shipQty: l.remaining > 0 ? l.remaining : 1,
-  }))
+  const focusId = focus?.shippable ? focus.poItemId : 0
+  linePicks.value = group.lines
+    .filter((l) => l.shippable)
+    .map((l) => ({
+      ...l,
+      selected: focusId ? l.poItemId === focusId && l.remaining > 0 : l.remaining > 0,
+      shipQty: l.remaining > 0 ? l.remaining : 1,
+    }))
   dialogVisible.value = true
   await fillReceiverFromOrder(group.refSoId)
 }
@@ -417,11 +478,15 @@ async function handleSave() {
     const trackingNo = form.value.trackingNo.trim()
     if (isDropship.value && refSoId) {
       try {
+        const shipItems = selected
+          .filter((l) => l.refOrderItemId && l.refOrderItemId > 0)
+          .map((l) => ({ orderItemId: l.refOrderItemId!, qty: l.shipQty }))
         const shipped = await shipOrder(refSoId, {
           expressCompany: form.value.carrierName,
           expressNo: trackingNo,
           remark: form.value.remark || `代发采购单 ${props.po.poNo || props.poId} 发货回传`,
           callback: true,
+          items: shipItems.length ? shipItems : undefined,
         })
         const tip = shipCallbackTip(shipped, trackingNo)
         if (!tip.ok) {
@@ -596,6 +661,79 @@ async function handleDelete(row: Shipment) {
   }
 }
 
+
+function openSplit(line: LinePick) {
+  if (line.isSplitChild) {
+    ElMessage.warning('请在父商品上编辑拆分')
+    return
+  }
+  splitParent.value = line
+  const kids = linePicks.value.filter((l) => l.parentPoItemId === line.poItemId && l.isSplitChild)
+  if (kids.length) {
+    splitLines.value = kids.map((k) => ({
+      skuName: k.skuSpecs || k.productName,
+      qty: k.qty,
+      shipPlanLineId: k.shipPlanLineId || undefined,
+    }))
+  } else {
+    splitLines.value = [
+      { skuName: line.skuSpecs || '', qty: Math.max(1, Math.floor(line.qty / 2) || 1) },
+      { skuName: '', qty: Math.max(1, line.qty - Math.max(1, Math.floor(line.qty / 2) || 1)) },
+    ]
+  }
+  splitVisible.value = true
+}
+
+function addSplitLine() {
+  splitLines.value.push({ skuName: '', qty: 1 })
+}
+
+function removeSplitLine(idx: number) {
+  if (splitLines.value.length <= 1) return
+  splitLines.value.splice(idx, 1)
+}
+
+async function handleSaveSplit() {
+  if (!splitParent.value) return
+  for (let i = 0; i < splitLines.value.length; i++) {
+    const row = splitLines.value[i]
+    if (!row.skuName?.trim()) {
+      ElMessage.warning(`第 ${i + 1} 行请填写规格名称`)
+      return
+    }
+    if (!row.qty || row.qty < 1) {
+      ElMessage.warning(`第 ${i + 1} 行数量须大于 0`)
+      return
+    }
+  }
+  splitSaving.value = true
+  try {
+    const res = await splitPurchaseOrderItem(
+      props.poId,
+      splitParent.value.poItemId,
+      splitLines.value.map((l) => ({
+        skuName: l.skuName.trim(),
+        qty: l.qty,
+        shipPlanLineId: l.shipPlanLineId,
+      })),
+    )
+    if (res.syncWarning) {
+      ElMessage.warning(`拆分已保存：${res.syncWarning}`)
+    } else if (res.syncedToOrderCore) {
+      ElMessage.success('已拆分并同步订单中心')
+    } else {
+      ElMessage.success('已拆分')
+    }
+    splitVisible.value = false
+    emit('refresh')
+    await loadData()
+  } catch (e) {
+    ElMessage.error((e as Error).message || '拆分失败')
+  } finally {
+    splitSaving.value = false
+  }
+}
+
 const dialogTitle = computed(() =>
   isDropship.value ? '按销售单发货' : '发货',
 )
@@ -616,34 +754,53 @@ const activeGroup = computed(() =>
     <el-table :data="soGroupRows" border stripe class="so-group-table" row-key="key">
       <el-table-column v-if="isDropship" label="销售单" width="160" show-overflow-tooltip>
         <template #default="{ row }">
-          <el-tag v-if="row.group.unlinked" type="info" effect="plain" size="small">未关联</el-tag>
-          <span v-else>{{ row.group.refOrderNo }}</span>
+          <template v-if="!row.isSplitChild">
+            <el-tag v-if="row.group.unlinked" type="info" effect="plain" size="small">未关联</el-tag>
+            <span v-else>{{ row.group.refOrderNo }}</span>
+          </template>
+          <span v-else class="muted">└</span>
         </template>
       </el-table-column>
-      <el-table-column label="规格" min-width="220" show-overflow-tooltip>
-        <template #default="{ row }">{{ formatSpecLabel(row.line.skuSpecs, row.line.qty) }}</template>
+      <el-table-column label="规格" min-width="240" show-overflow-tooltip>
+        <template #default="{ row }">
+          <div class="spec-cell" :class="{ child: row.isSplitChild }">
+            <span v-if="row.isSplitChild" class="tree-prefix">└</span>
+            <span>{{ formatSpecLabel(row.line.skuSpecs || row.line.productName, row.line.qty) }}</span>
+            <el-tag v-if="row.isSplitParent" size="small" type="warning" effect="plain" class="split-tag">已拆分</el-tag>
+            <el-tag v-else-if="row.isSplitChild" size="small" type="info" effect="plain" class="split-tag">拆分</el-tag>
+          </div>
+        </template>
       </el-table-column>
       <el-table-column label="待发" width="80" align="center">
         <template #default="{ row }">
-          <span :class="{ muted: row.line.remaining <= 0 }">{{ row.line.remaining }}</span>
+          <span v-if="row.line.shippable" :class="{ muted: row.line.remaining <= 0 }">{{ row.line.remaining }}</span>
+          <span v-else class="muted">—</span>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="100" align="center">
         <template #default="{ row }">{{ row.lineStatus }}</template>
       </el-table-column>
-      <el-table-column v-if="!readonly" label="操作" :width="isDropship ? 180 : 100" fixed="right">
+      <el-table-column v-if="!readonly" label="操作" :width="isDropship ? 220 : 140" fixed="right">
         <template #default="{ row }">
           <el-button
-            v-if="isDropship"
+            v-if="!row.isSplitChild"
+            type="warning"
+            link
+            @click="openSplit(row.line)"
+          >
+            拆分
+          </el-button>
+          <el-button
+            v-if="isDropship && row.line.shippable"
             type="primary"
             link
-            :disabled="row.group.remainingQty <= 0"
-            @click="openCreateDropship(row.group)"
+            :disabled="row.line.remaining <= 0"
+            @click="openCreateDropship(row.group, row.line)"
           >
             发货
           </el-button>
           <el-button
-            v-else
+            v-else-if="!isDropship && row.line.shippable"
             type="primary"
             link
             :disabled="row.line.remaining <= 0"
@@ -652,7 +809,7 @@ const activeGroup = computed(() =>
             发货
           </el-button>
           <el-button
-            v-if="isDropship"
+            v-if="isDropship && !row.isSplitChild"
             type="success"
             link
             :disabled="!row.group.refSoId"
@@ -858,6 +1015,36 @@ const activeGroup = computed(() =>
       </template>
     </el-dialog>
 
+
+    <el-dialog v-model="splitVisible" title="拆分规格" width="560px">
+      <div v-if="splitParent" class="hint" style="margin-bottom: 12px">
+        父商品：{{ formatSpecLabel(splitParent.skuSpecs || splitParent.productName, splitParent.qty) }}
+        <span v-if="isDropship"> · 保存后同步订单中心拆分明细</span>
+      </div>
+      <el-table :data="splitLines" border size="small">
+        <el-table-column label="规格名称" min-width="200">
+          <template #default="{ row }">
+            <el-input v-model="row.skuName" placeholder="如：红色 / L" />
+          </template>
+        </el-table-column>
+        <el-table-column label="数量" width="120" align="center">
+          <template #default="{ row }">
+            <el-input-number v-model="row.qty" :min="1" size="small" controls-position="right" style="width: 100px" />
+          </template>
+        </el-table-column>
+        <el-table-column label="" width="70" align="center">
+          <template #default="{ $index }">
+            <el-button link type="danger" :disabled="splitLines.length <= 1" @click="removeSplitLine($index)">删</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-button class="add-split" type="primary" link @click="addSplitLine">+ 添加规格</el-button>
+      <template #footer>
+        <el-button @click="splitVisible = false">取消</el-button>
+        <el-button type="primary" :loading="splitSaving" @click="handleSaveSplit">保存拆分</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="photoVisible" title="上传发货/物流照片" width="520px">
       <div v-if="photoTarget" class="hint" style="margin-bottom: 12px">
         批次 {{ photoTarget.shipmentNo }} · {{ photoTarget.carrierName || '—' }} {{ photoTarget.trackingNo || '' }}
@@ -918,5 +1105,24 @@ const activeGroup = computed(() =>
   width: 36px;
   height: 36px;
   border-radius: 4px;
+}
+.spec-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.spec-cell.child {
+  padding-left: 4px;
+  color: var(--el-text-color-regular);
+}
+.tree-prefix {
+  color: var(--el-text-color-placeholder);
+  margin-right: 2px;
+}
+.split-tag {
+  flex-shrink: 0;
+}
+.add-split {
+  margin-top: 10px;
 }
 </style>

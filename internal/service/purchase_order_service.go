@@ -742,6 +742,7 @@ func (s *PurchaseOrderService) buildItems(supplierID uint64, fulfillmentType str
 			SaleAmount:      in.SaleAmount,
 			RefSoID:         in.RefSoID,
 			RefOrderNo:      strings.TrimSpace(in.RefOrderNo),
+			RefOrderItemID:  in.RefOrderItemID,
 			Remark:          in.Remark,
 		}
 		if item.SaleAmount <= 0 && item.SaleUnitPrice > 0 {
@@ -827,6 +828,8 @@ func (s *PurchaseOrderService) toDetail(po *model.PurchaseOrder) *dto.PurchaseOr
 			SaleUnitPrice: it.SaleUnitPrice, SaleAmount: it.SaleAmount,
 			UnitPrice: it.UnitPrice, LineAmount: it.LineAmount,
 			ReceivedQty: it.ReceivedQty, RefSoID: it.RefSoID, RefOrderNo: it.RefOrderNo,
+			RefOrderItemID: it.RefOrderItemID, ParentPOItemID: it.ParentPOItemID,
+			SplitKind: it.SplitKind, ShipPlanLineID: it.ShipPlanLineID,
 			Cancelled: it.Cancelled, Remark: it.Remark,
 		})
 	}

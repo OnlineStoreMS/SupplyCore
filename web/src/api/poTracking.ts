@@ -83,6 +83,18 @@ export async function syncShipmentsFromOrders(poId: number, refSoId?: number) {
   )
 }
 
+export async function splitPurchaseOrderItem(
+  poId: number,
+  itemId: number,
+  lines: { skuName: string; qty: number; shipPlanLineId?: number }[],
+) {
+  return unwrap<{
+    syncedToOrderCore?: boolean
+    syncWarning?: string
+    items?: unknown[]
+  }>(await client.post(`/purchase-orders/${poId}/items/${itemId}/split`, { lines }))
+}
+
 export async function updateShipmentStatus(poId: number, shipmentId: number, status: string) {
   return unwrap<Shipment>(await client.patch(`/purchase-orders/${poId}/shipments/${shipmentId}/status`, { status }))
 }

@@ -29,15 +29,18 @@ func NewClient(baseURL string) *Client {
 }
 
 type OrderItemBrief struct {
-	ID          uint64  `json:"id"`
-	SkuID       uint64  `json:"skuId"`
-	SkuCode     string  `json:"skuCode"`
-	ProductName string  `json:"productName"`
-	SkuSpecs    string  `json:"skuSpecs"`
-	PicURL      string  `json:"picUrl"`
-	Quantity    int     `json:"quantity"`
-	Price       float64 `json:"price"`
-	TotalAmount float64 `json:"totalAmount"`
+	ID                uint64  `json:"id"`
+	SkuID             uint64  `json:"skuId"`
+	SkuCode           string  `json:"skuCode"`
+	ProductName       string  `json:"productName"`
+	SkuSpecs          string  `json:"skuSpecs"`
+	PicURL            string  `json:"picUrl"`
+	Quantity          int     `json:"quantity"`
+	Price             float64 `json:"price"`
+	TotalAmount       float64 `json:"totalAmount"`
+	ParentOrderItemID uint64  `json:"parentOrderItemId"`
+	SplitKind         string  `json:"splitKind"`
+	ShipPlanLineID    uint64  `json:"shipPlanLineId"`
 }
 
 type OrderAddressBrief struct {
@@ -255,6 +258,51 @@ func (c *Client) getJSON(ctx context.Context, bearerToken, path string, out any)
 
 func (c *Client) postJSON(ctx context.Context, bearerToken, path string, body any, out any) error {
 	return c.doJSON(ctx, http.MethodPost, bearerToken, path, body, out)
+}
+
+func (c *Client) putJSON(ctx context.Context, bearerToken, path string, body any, out any) error {
+	return c.doJSON(ctx, http.MethodPut, bearerToken, path, body, out)
+}
+
+type SyncSplitItemsRequest struct {
+	Mode  string               `json:"mode"`
+	Lines []SplitItemLineInput `json:"lines"`
+}
+
+type SplitItemLineInput struct {
+	ParentOrderItemID uint64 `json:"parentOrderItemId"`
+	SkuName           string `json:"skuName"`
+	Qty               int    `json:"qty"`
+	ShipPlanLineID    uint64 `json:"shipPlanLineId"`
+}
+
+type SplitItemLineResult struct {
+	ID                uint64 `json:"id"`
+	ParentOrderItemID uint64 `json:"parentOrderItemId"`
+	SkuName           string `json:"skuName"`
+	Qty               int    `json:"qty"`
+	ShipPlanLineID    uint64 `json:"shipPlanLineId"`
+	SplitKind         string `json:"splitKind"`
+}
+
+type SyncSplitItemsResult struct {
+	Mode  string                `json:"mode"`
+	Lines []SplitItemLineResult `json:"lines"`
+}
+
+// SyncSplitItems 将供应链拆分同步为订单中心销售子行。
+func (c *Client) SyncSplitItems(ctx context.Context, bearerToken string, orderID uint64, req SyncSplitItemsRequest) (*SyncSplitItemsResult, error) {
+	if orderID == 0 {
+		return nil, fmt.Errorf("order id required")
+	}
+	var out SyncSplitItemsResult
+	if err := c.putJSON(ctx, bearerToken, fmt.Sprintf("/api/v1/admin/orders/%d/split-items", orderID), req, &out); err != nil {
+		return nil, err
+	}
+	if out.Lines == nil {
+		out.Lines = []SplitItemLineResult{}
+	}
+	return &out, nil
 }
 
 func (c *Client) doJSON(ctx context.Context, method, bearerToken, path string, body any, out any) error {

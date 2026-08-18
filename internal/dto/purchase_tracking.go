@@ -110,3 +110,21 @@ type SyncShipmentsFromOrdersResult struct {
 	Skipped int      `json:"skipped"`
 	Errors  []string `json:"errors,omitempty"`
 }
+
+// SplitPOItemLineInput 物流页按商品拆分规格
+type SplitPOItemLineInput struct {
+	SkuName        string `json:"skuName"`
+	Qty            int    `json:"qty"`
+	ShipPlanLineID uint64 `json:"shipPlanLineId"` // 可选；更新已有拆分行时传入
+}
+
+type SplitPOItemInput struct {
+	Lines []SplitPOItemLineInput `json:"lines" binding:"required,min=1"`
+}
+
+type SplitPOItemResult struct {
+	*PurchaseOrderDetail
+	SyncedToOrderCore bool     `json:"syncedToOrderCore"`
+	SyncWarning       string   `json:"syncWarning,omitempty"`
+	Errors            []string `json:"errors,omitempty"`
+}

@@ -106,7 +106,13 @@ export async function decryptOrders(orderIds: number[]) {
 
 export async function shipOrder(
   id: number,
-  body: { expressCompany: string; expressNo: string; remark?: string; callback?: boolean },
+  body: {
+    expressCompany: string
+    expressNo: string
+    remark?: string
+    callback?: boolean
+    items?: { orderItemId: number; qty: number }[]
+  },
 ) {
   // 回传快递助手可能较慢（查单+发货+核对），避免默认 30s 超时中断
   return unwrap<OrderBrief>(await client.post(`/orders/${id}/ship`, body, { timeout: 180000 }))

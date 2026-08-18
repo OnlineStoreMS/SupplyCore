@@ -18,6 +18,10 @@ const (
 	POFulfillmentStockIn  = "stock_in"
 	POFulfillmentDropship = "dropship"
 
+	// 采购明细拆分（对齐订单中心 order_items.split_kind）
+	SplitKindPartial = "partial" // 按商品拆分：子行挂 parent_po_item_id
+	SplitKindFull    = "full"    // 整单拆分：子行不挂父行
+
 	AddressTypeShip   = "ship"
 	AddressTypeReturn = "return"
 

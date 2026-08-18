@@ -277,6 +277,30 @@ func (r *PurchaseOrderRepo) SaveItem(item *model.PurchaseOrderItem) error {
 	return r.db.Save(item).Error
 }
 
+func (r *PurchaseOrderRepo) CreateItem(item *model.PurchaseOrderItem) error {
+	item.TenantID = r.tenantID
+	return r.db.Create(item).Error
+}
+
+func (r *PurchaseOrderRepo) DeleteItemsByIDs(poID uint64, ids []uint64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return r.db.Where("tenant_id = ? AND po_id = ? AND id IN ?", r.tenantID, poID, ids).
+		Delete(&model.PurchaseOrderItem{}).Error
+}
+
+// NextShipPlanLineID 分配拆分行稳定键（跨租户递增即可，订单中心按单内 upsert）。
+func (r *PurchaseOrderRepo) NextShipPlanLineID() (uint64, error) {
+	var max uint64
+	if err := r.db.Model(&model.PurchaseOrderItem{}).
+		Select("COALESCE(MAX(ship_plan_line_id), 0)").
+		Scan(&max).Error; err != nil {
+		return 0, err
+	}
+	return max + 1, nil
+}
+
 // ReassignPOSideData 将源单的物流/付款/附件/收包记录挂到目标单（合并用，避免删源单时级联清掉）。
 func (r *PurchaseOrderRepo) ReassignPOSideData(fromPOID, toPOID uint64) error {
 	if fromPOID == 0 || toPOID == 0 || fromPOID == toPOID {
@@ -398,7 +422,7 @@ func (r *PurchaseOrderRepo) ItemSpecsByPOIDs(poIDs []uint64) (map[uint64][]strin
 	err := r.db.Model(&model.PurchaseOrderItem{}).
 		Scopes(scopeTenant(r.tenantID)).
 		Select("po_id, sku_specs, qty").
-		Where("po_id IN ? AND cancelled = ? AND sku_specs <> ''", poIDs, false).
+		Where("po_id IN ? AND cancelled = ? AND sku_specs <> '' AND COALESCE(split_kind, '') = '' AND COALESCE(parent_po_item_id, 0) = 0", poIDs, false).
 		Order("po_id ASC, id ASC").
 		Find(&rows).Error
 	if err != nil {

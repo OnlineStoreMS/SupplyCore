@@ -14,6 +14,7 @@ type PurchaseOrderItemInput struct {
 	UnitPrice       float64 `json:"unitPrice"`
 	RefSoID         uint64  `json:"refSoId"`
 	RefOrderNo      string  `json:"refOrderNo"`
+	RefOrderItemID  uint64  `json:"refOrderItemId"`
 	Remark          string  `json:"remark"`
 }
 
@@ -48,6 +49,10 @@ type PurchaseOrderItemDetail struct {
 	ReceivedQty     int     `json:"receivedQty"`
 	RefSoID         uint64  `json:"refSoId,omitempty"`
 	RefOrderNo      string  `json:"refOrderNo,omitempty"`
+	RefOrderItemID  uint64  `json:"refOrderItemId,omitempty"`
+	ParentPOItemID  uint64  `json:"parentPoItemId,omitempty"`
+	SplitKind       string  `json:"splitKind,omitempty"`
+	ShipPlanLineID  uint64  `json:"shipPlanLineId,omitempty"`
 	Cancelled       bool    `json:"cancelled"`
 	Remark          string  `json:"remark"`
 }
