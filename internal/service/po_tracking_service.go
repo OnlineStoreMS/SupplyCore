@@ -244,42 +244,32 @@ func (s *POTrackingService) SyncShipmentsFromOrders(ctx context.Context, poID ui
 			carrier    string
 			shippedAt  *time.Time
 			remark     string
-			orderItems []ordercore.OrderShipmentItemBrief
 		}
 		logs := make([]logistics, 0)
-		trackIdx := map[string]int{}
+		seenTrack := map[string]struct{}{}
 		for _, sh := range order.Shipments {
 			tn := strings.TrimSpace(sh.ExpressNo)
 			if tn == "" {
 				continue
 			}
+			if _, ok := seenTrack[tn]; ok {
+				continue
+			}
+			seenTrack[tn] = struct{}{}
 			var shippedAt *time.Time
 			if sh.ShippedAt != nil && strings.TrimSpace(*sh.ShippedAt) != "" {
 				if t := parseDateTime(*sh.ShippedAt); t != nil {
 					shippedAt = t
 				}
 			}
-			carrier := strings.TrimSpace(sh.ExpressCompany)
-			if idx, ok := trackIdx[tn]; ok {
-				logs[idx].orderItems = mergeOrderShipmentItems(logs[idx].orderItems, sh.Items)
-				if logs[idx].carrier == "" && carrier != "" {
-					logs[idx].carrier = carrier
-				}
-				if logs[idx].shippedAt == nil && shippedAt != nil {
-					logs[idx].shippedAt = shippedAt
-				}
-				continue
-			}
-			trackIdx[tn] = len(logs)
 			logs = append(logs, logistics{
 				trackingNo: tn,
-				carrier:    carrier,
+				carrier:    strings.TrimSpace(sh.ExpressCompany),
 				shippedAt:  shippedAt,
 				remark:     fmt.Sprintf("同步自订单 %s", order.OrderNo),
-				orderItems: append([]ordercore.OrderShipmentItemBrief(nil), sh.Items...),
 			})
 		}
-		if len(logs) == 0 && (order.ShipStatus == "shipped" || order.ShipStatus == "partial_shipped") {
+		if len(logs) == 0 && order.ShipStatus == "shipped" {
 			logs = append(logs, logistics{
 				trackingNo: fmt.Sprintf("SYNC-%s", order.OrderNo),
 				carrier:    "订单中心已发货",
@@ -291,148 +281,129 @@ func (s *POTrackingService) SyncShipmentsFromOrders(ctx context.Context, poID ui
 			continue
 		}
 
-		shippedQty := map[uint64]int{}
-		allShip, _ := sr.ListByPO(poID)
-		for _, sh := range allShip {
-			for _, it := range sh.Items {
-				shippedQty[it.POItemID] += it.Qty
-			}
+		// 该销售单剩余可发数量：全部挂到第一条物流（代发通常一单一票）
+		primary := logs[0]
+		remainInputs := s.remainShipmentInputs(poID, g.items)
+		if len(remainInputs) == 0 {
+			out.Skipped++
+			continue
 		}
-		parentByChild := map[uint64]uint64{}
-		for _, it := range order.Items {
-			if strings.TrimSpace(it.SplitKind) != "" && it.ParentOrderItemID > 0 {
-				parentByChild[it.ID] = it.ParentOrderItemID
-			}
+		items, berr := s.buildShipmentItems(poID, remainInputs)
+		if berr != nil {
+			out.Skipped++
+			out.Errors = append(out.Errors, fmt.Sprintf("%s: %v", order.OrderNo, berr))
+			continue
 		}
 
-		for _, entry := range logs {
-			remainInputs := s.remainShipmentInputsForOrderShip(g.items, shippedQty, entry.orderItems, parentByChild)
-			if len(remainInputs) == 0 {
-				// 无明细运单：仅首票挂剩余；后续运单只登记单号
-				if entry.trackingNo == logs[0].trackingNo {
-					remainInputs = s.remainShipmentInputs(poID, g.items)
-				}
-			}
-			if len(remainInputs) == 0 {
-				if ex, _ := sr.FindByTrackingNo(poID, entry.trackingNo); ex != nil {
-					out.Skipped++
-					continue
-				}
-				eno, _ := sr.NextShipmentNo()
-				now := time.Now()
-				shippedAt := &now
-				if entry.shippedAt != nil {
-					shippedAt = entry.shippedAt
-				}
-				esh := &model.PurchaseShipment{
-					POID: poID, ShipmentNo: eno, Status: model.ShipmentStatusShipped,
-					CarrierName: entry.carrier, TrackingNo: entry.trackingNo, ShippedAt: shippedAt,
-					ReceiverName: receiverName, ReceiverPhone: receiverPhone, ReceiverAddress: receiverAddr,
-					Remark: entry.remark + "（附加运单）",
-				}
-				if err := sr.Create(esh, nil); err != nil {
-					out.Errors = append(out.Errors, fmt.Sprintf("%s extra: %v", order.OrderNo, err))
-				} else {
-					out.Created++
-				}
-				continue
-			}
-			items, berr := s.buildShipmentItems(poID, remainInputs)
-			if berr != nil {
-				out.Skipped++
-				out.Errors = append(out.Errors, fmt.Sprintf("%s: %v", order.OrderNo, berr))
-				continue
-			}
-
-			existing, ferr := sr.FindByTrackingNo(poID, entry.trackingNo)
-			if ferr != nil && !errors.Is(ferr, gorm.ErrRecordNotFound) {
-				out.Skipped++
-				out.Errors = append(out.Errors, fmt.Sprintf("%s: %v", order.OrderNo, ferr))
-				continue
-			}
-			if existing != nil {
-				if err := sr.AddItems(existing.ID, items); err != nil {
-					out.Skipped++
-					out.Errors = append(out.Errors, fmt.Sprintf("%s: %v", order.OrderNo, err))
-					continue
-				}
-				for _, in := range remainInputs {
-					shippedQty[in.POItemID] += in.Qty
-				}
-				changed := false
-				if order.OrderNo != "" && !strings.Contains(existing.Remark, order.OrderNo) {
-					if strings.TrimSpace(existing.Remark) == "" {
-						existing.Remark = fmt.Sprintf("同步自订单 %s", order.OrderNo)
-					} else {
-						existing.Remark = existing.Remark + "、" + order.OrderNo
-					}
-					changed = true
-				}
-				if strings.TrimSpace(existing.ReceiverName) == "" && receiverName != "" {
-					existing.ReceiverName = receiverName
-					changed = true
-				}
-				if strings.TrimSpace(existing.ReceiverPhone) == "" && receiverPhone != "" {
-					existing.ReceiverPhone = receiverPhone
-					changed = true
-				}
-				if strings.TrimSpace(existing.ReceiverAddress) == "" && receiverAddr != "" {
-					existing.ReceiverAddress = receiverAddr
-					changed = true
-				}
-				if strings.TrimSpace(existing.CarrierName) == "" && entry.carrier != "" {
-					existing.CarrierName = entry.carrier
-					changed = true
-				}
-				if existing.Status == model.ShipmentStatusPending {
-					existing.Status = model.ShipmentStatusShipped
-					now := time.Now()
-					if entry.shippedAt != nil {
-						existing.ShippedAt = entry.shippedAt
-					} else {
-						existing.ShippedAt = &now
-					}
-					changed = true
-				}
-				if changed {
-					if err := sr.Save(existing); err != nil {
-						out.Errors = append(out.Errors, fmt.Sprintf("%s: %v", order.OrderNo, err))
-					}
-				}
-				out.Updated++
-				continue
-			}
-
-			no, nerr := sr.NextShipmentNo()
-			if nerr != nil {
-				out.Skipped++
-				out.Errors = append(out.Errors, fmt.Sprintf("%s: %v", order.OrderNo, nerr))
-				continue
-			}
-			now := time.Now()
-			shippedAt := &now
-			if entry.shippedAt != nil {
-				shippedAt = entry.shippedAt
-			}
-			sh := &model.PurchaseShipment{
-				POID:            poID,
-				ShipmentNo:      no,
-				Status:          model.ShipmentStatusShipped,
-				CarrierName:     entry.carrier,
-				TrackingNo:      entry.trackingNo,
-				ShippedAt:       shippedAt,
-				ReceiverName:    receiverName,
-				ReceiverPhone:   receiverPhone,
-				ReceiverAddress: receiverAddr,
-				Remark:          entry.remark,
-			}
-			if err := sr.Create(sh, items); err != nil {
+		existing, ferr := sr.FindByTrackingNo(poID, primary.trackingNo)
+		if ferr != nil && !errors.Is(ferr, gorm.ErrRecordNotFound) {
+			out.Skipped++
+			out.Errors = append(out.Errors, fmt.Sprintf("%s: %v", order.OrderNo, ferr))
+			continue
+		}
+		if existing != nil {
+			// 合单发货：多销售单共用同一运单号，把本单未发明细挂到已有物流上
+			if err := sr.AddItems(existing.ID, items); err != nil {
 				out.Skipped++
 				out.Errors = append(out.Errors, fmt.Sprintf("%s: %v", order.OrderNo, err))
 				continue
 			}
-			for _, in := range remainInputs {
-				shippedQty[in.POItemID] += in.Qty
+			changed := false
+			if order.OrderNo != "" && !strings.Contains(existing.Remark, order.OrderNo) {
+				if strings.TrimSpace(existing.Remark) == "" {
+					existing.Remark = fmt.Sprintf("同步自订单 %s", order.OrderNo)
+				} else {
+					existing.Remark = existing.Remark + "、" + order.OrderNo
+				}
+				changed = true
+			}
+			if strings.TrimSpace(existing.ReceiverName) == "" && receiverName != "" {
+				existing.ReceiverName = receiverName
+				changed = true
+			}
+			if strings.TrimSpace(existing.ReceiverPhone) == "" && receiverPhone != "" {
+				existing.ReceiverPhone = receiverPhone
+				changed = true
+			}
+			if strings.TrimSpace(existing.ReceiverAddress) == "" && receiverAddr != "" {
+				existing.ReceiverAddress = receiverAddr
+				changed = true
+			}
+			if strings.TrimSpace(existing.CarrierName) == "" && primary.carrier != "" {
+				existing.CarrierName = primary.carrier
+				changed = true
+			}
+			if existing.Status == model.ShipmentStatusPending {
+				existing.Status = model.ShipmentStatusShipped
+				now := time.Now()
+				if primary.shippedAt != nil {
+					existing.ShippedAt = primary.shippedAt
+				} else {
+					existing.ShippedAt = &now
+				}
+				changed = true
+			}
+			if changed {
+				if err := sr.Save(existing); err != nil {
+					out.Errors = append(out.Errors, fmt.Sprintf("%s: %v", order.OrderNo, err))
+				}
+			}
+			out.Updated++
+			continue
+		}
+
+		no, nerr := sr.NextShipmentNo()
+		if nerr != nil {
+			out.Skipped++
+			out.Errors = append(out.Errors, fmt.Sprintf("%s: %v", order.OrderNo, nerr))
+			continue
+		}
+		now := time.Now()
+		shippedAt := &now
+		if primary.shippedAt != nil {
+			shippedAt = primary.shippedAt
+		}
+		sh := &model.PurchaseShipment{
+			POID:            poID,
+			ShipmentNo:      no,
+			Status:          model.ShipmentStatusShipped,
+			CarrierName:     primary.carrier,
+			TrackingNo:      primary.trackingNo,
+			ShippedAt:       shippedAt,
+			ReceiverName:    receiverName,
+			ReceiverPhone:   receiverPhone,
+			ReceiverAddress: receiverAddr,
+			Remark:          primary.remark,
+		}
+		if err := sr.Create(sh, items); err != nil {
+			out.Skipped++
+			out.Errors = append(out.Errors, fmt.Sprintf("%s: %v", order.OrderNo, err))
+			continue
+		}
+		out.Created++
+
+		// 额外快递单号：仅登记单号（明细已挂在首票）
+		for i := 1; i < len(logs); i++ {
+			extra := logs[i]
+			if ex, _ := sr.FindByTrackingNo(poID, extra.trackingNo); ex != nil {
+				continue
+			}
+			eno, _ := sr.NextShipmentNo()
+			esh := &model.PurchaseShipment{
+				POID:            poID,
+				ShipmentNo:      eno,
+				Status:          model.ShipmentStatusShipped,
+				CarrierName:     extra.carrier,
+				TrackingNo:      extra.trackingNo,
+				ShippedAt:       shippedAt,
+				ReceiverName:    receiverName,
+				ReceiverPhone:   receiverPhone,
+				ReceiverAddress: receiverAddr,
+				Remark:          extra.remark + "（附加运单）",
+			}
+			if err := sr.Create(esh, nil); err != nil {
+				out.Errors = append(out.Errors, fmt.Sprintf("%s extra: %v", order.OrderNo, err))
+				continue
 			}
 			out.Created++
 		}
@@ -449,89 +420,6 @@ func coalesceOrderNo(orderNo string, soID uint64) string {
 		return orderNo
 	}
 	return fmt.Sprintf("#%d", soID)
-}
-
-func mergeOrderShipmentItems(a, b []ordercore.OrderShipmentItemBrief) []ordercore.OrderShipmentItemBrief {
-	if len(b) == 0 {
-		return a
-	}
-	byID := map[uint64]int{}
-	out := append([]ordercore.OrderShipmentItemBrief(nil), a...)
-	for i, it := range out {
-		if it.OrderItemID > 0 {
-			byID[it.OrderItemID] = i
-		}
-	}
-	for _, it := range b {
-		if it.OrderItemID == 0 || it.Qty <= 0 {
-			continue
-		}
-		if idx, ok := byID[it.OrderItemID]; ok {
-			out[idx].Qty += it.Qty
-			continue
-		}
-		byID[it.OrderItemID] = len(out)
-		out = append(out, it)
-	}
-	return out
-}
-
-// remainShipmentInputsForOrderShip 按订单中心运单明细（含拆分子行→父行）落到采购行剩余数量。
-func (s *POTrackingService) remainShipmentInputsForOrderShip(
-	groupItems []model.PurchaseOrderItem,
-	shippedQty map[uint64]int,
-	orderItems []ordercore.OrderShipmentItemBrief,
-	parentByChild map[uint64]uint64,
-) []dto.ShipmentItemInput {
-	if len(orderItems) == 0 || len(groupItems) == 0 {
-		return nil
-	}
-	remainByPO := map[uint64]int{}
-	ordered := make([]uint64, 0, len(groupItems))
-	for _, it := range groupItems {
-		if it.ID == 0 || it.Cancelled {
-			continue
-		}
-		remain := it.Qty - shippedQty[it.ID]
-		if remain <= 0 {
-			continue
-		}
-		remainByPO[it.ID] = remain
-		ordered = append(ordered, it.ID)
-	}
-	if len(remainByPO) == 0 {
-		return nil
-	}
-
-	needQty := 0
-	for _, oi := range orderItems {
-		if oi.Qty > 0 {
-			needQty += oi.Qty
-		}
-	}
-	if needQty <= 0 {
-		return nil
-	}
-	_ = parentByChild // 保留：后续若采购行补 refOrderItemId 可精确映射
-
-	out := make([]dto.ShipmentItemInput, 0)
-	left := needQty
-	for _, poItemID := range ordered {
-		if left <= 0 {
-			break
-		}
-		avail := remainByPO[poItemID]
-		if avail <= 0 {
-			continue
-		}
-		take := avail
-		if take > left {
-			take = left
-		}
-		out = append(out, dto.ShipmentItemInput{POItemID: poItemID, Qty: take})
-		left -= take
-	}
-	return out
 }
 
 // remainShipmentInputs 计算销售单明细在本采购单上尚未挂到物流的剩余数量。

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Delete } from '@element-plus/icons-vue'
+import { Delete } from '@element-plus/icons-vue'
 import type { PurchaseOrder, PurchaseOrderItem } from '../../api/purchase'
 import {
   fetchShipments, createShipment, updateShipmentStatus, deleteShipment,
@@ -124,6 +124,8 @@ interface SalesOrderGroup {
   key: string
   refSoId: number
   refOrderNo: string
+  /** 未挂订单中心销售单（手工代发） */
+  unlinked: boolean
   lines: LinePick[]
   remainingQty: number
   receiverHint: string
@@ -177,21 +179,36 @@ function rebuildLinePicks() {
     })
 }
 
+/** 销售单展示名：优先单号，其次订单中心 ID；都没有则「未关联」（手工代发） */
+function formatSalesOrderLabel(orderNo: string, soId: number): { text: string; unlinked: boolean } {
+  const no = (orderNo || '').trim()
+  if (no) return { text: no, unlinked: false }
+  if (soId > 0) return { text: `订单中心 #${soId}`, unlinked: false }
+  return { text: '未关联', unlinked: true }
+}
+
 function rebuildSoGroups() {
   rebuildLinePicks()
   const headerSoId = Number(props.po.refSoId || 0)
   const headerOrderNo = (props.po.refTraceId || '').trim()
   const map = new Map<string, SalesOrderGroup>()
   for (const line of linePicks.value) {
-    const orderNo = (line.refOrderNo || '').trim() || (headerOrderNo.includes(',') ? '' : headerOrderNo)
-    const soId = line.refSoId || headerSoId || 0
-    const key = soId > 0 ? `id:${soId}` : orderNo ? `no:${orderNo}` : `item:${line.poItemId}`
+    // 入仓按明细行展示；代发按销售单聚合
+    const orderNo = isDropship.value
+      ? ((line.refOrderNo || '').trim() || (headerOrderNo.includes(',') ? '' : headerOrderNo))
+      : ''
+    const soId = isDropship.value ? (line.refSoId || headerSoId || 0) : 0
+    const key = isDropship.value
+      ? (soId > 0 ? `id:${soId}` : orderNo ? `no:${orderNo}` : `item:${line.poItemId}`)
+      : `item:${line.poItemId}`
     let g = map.get(key)
     if (!g) {
+      const label = formatSalesOrderLabel(orderNo, soId)
       g = {
         key,
         refSoId: soId,
-        refOrderNo: orderNo || (soId ? `订单#${soId}` : `明细#${line.poItemId}`),
+        refOrderNo: label.text,
+        unlinked: label.unlinked,
         lines: [],
         remainingQty: 0,
         receiverHint: '',
@@ -211,7 +228,7 @@ function rebuildSoGroups() {
   soGroups.value = groups
 }
 
-/** 一销售单多规格行 → 分行展示（销售单号相同） */
+/** 待发明细行（代发按销售单聚合后展开；入仓一行一明细） */
 const soGroupRows = computed(() => {
   const rows: {
     key: string
@@ -258,11 +275,11 @@ function shipmentSalesOrders(row: Shipment) {
     const poItem = itemLabelMap.value.get(it.poItemId)
     const no = poItem?.refOrderNo?.trim()
     if (no) nos.add(no)
-    else if (poItem?.refSoId) nos.add(`订单#${poItem.refSoId}`)
+    else if (poItem?.refSoId) nos.add(formatSalesOrderLabel('', poItem.refSoId).text)
   }
   if (!nos.size && headerOrderNo && !headerOrderNo.includes(',')) nos.add(headerOrderNo)
-  else if (!nos.size && headerSoId) nos.add(`订单#${headerSoId}`)
-  return [...nos].join('、') || '—'
+  else if (!nos.size && headerSoId) nos.add(formatSalesOrderLabel('', headerSoId).text)
+  return [...nos].join('、') || '未关联'
 }
 
 async function loadData() {
@@ -274,7 +291,7 @@ async function loadData() {
     ])
     list.value = shipments
     attachments.value = files
-    if (isDropship.value) rebuildSoGroups()
+    rebuildSoGroups()
   } catch (e) {
     ElMessage.error((e as Error).message || '加载失败')
   } finally {
@@ -284,11 +301,10 @@ async function loadData() {
 
 onMounted(loadData)
 watch(() => props.po.items, () => {
-  if (isDropship.value) rebuildSoGroups()
-  else if (dialogVisible.value) rebuildLinePicks()
+  rebuildSoGroups()
 })
 watch(isDropship, () => {
-  if (isDropship.value) rebuildSoGroups()
+  rebuildSoGroups()
 })
 
 function resetForm() {
@@ -298,12 +314,6 @@ function resetForm() {
   }
   pendingPhotoUrls.value = []
   addressHint.value = ''
-}
-
-function openCreateStockIn() {
-  resetForm()
-  rebuildLinePicks()
-  dialogVisible.value = true
 }
 
 async function fillReceiverFromOrder(soId: number) {
@@ -348,6 +358,24 @@ async function openCreateDropship(group: SalesOrderGroup) {
   }))
   dialogVisible.value = true
   await fillReceiverFromOrder(group.refSoId)
+}
+
+/** 入仓：按明细行发货（对齐代发操作入口，无销售单/回传） */
+function openCreateStockInLine(line: LinePick) {
+  if (line.remaining <= 0) {
+    ElMessage.warning('该明细已全部关联物流')
+    return
+  }
+  resetForm()
+  activeGroupKey.value = `item:${line.poItemId}`
+  rebuildLinePicks()
+  linePicks.value = linePicks.value.map((l) => ({
+    ...l,
+    selected: l.poItemId === line.poItemId && l.remaining > 0,
+    shipQty: l.remaining > 0 ? l.remaining : 1,
+  }))
+  addressHint.value = '采购入仓发货：登记供应商发往仓库的物流'
+  dialogVisible.value = true
 }
 
 async function handleSave() {
@@ -569,7 +597,7 @@ async function handleDelete(row: Shipment) {
 }
 
 const dialogTitle = computed(() =>
-  isDropship.value ? '按销售单发货' : '添加发货（按商品）',
+  isDropship.value ? '按销售单发货' : '发货',
 )
 
 const activeGroup = computed(() =>
@@ -579,57 +607,64 @@ const activeGroup = computed(() =>
 
 <template>
   <div v-loading="loading">
-    <!-- 代发：按销售单分组 -->
-    <template v-if="isDropship">
-      <div v-if="!readonly" class="toolbar">
-        <el-button type="primary" plain :loading="syncing" @click="handleSyncFromOrders()">同步物流</el-button>
-        <span class="hint">代发「发货」会同时回传订单中心与快递助手；也可「回传单号」单独补传</span>
-      </div>
-      <el-table :data="soGroupRows" border stripe class="so-group-table" row-key="key">
-        <el-table-column label="销售单" width="160" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.group.refOrderNo }}</template>
-        </el-table-column>
-        <el-table-column label="规格" min-width="220" show-overflow-tooltip>
-          <template #default="{ row }">{{ formatSpecLabel(row.line.skuSpecs, row.line.qty) }}</template>
-        </el-table-column>
-        <el-table-column label="待发" width="80" align="center">
-          <template #default="{ row }">
-            <span :class="{ muted: row.line.remaining <= 0 }">{{ row.line.remaining }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="100" align="center">
-          <template #default="{ row }">{{ row.lineStatus }}</template>
-        </el-table-column>
-        <el-table-column v-if="!readonly" label="操作" width="180" fixed="right">
-          <template #default="{ row }">
-            <el-button
-              type="primary"
-              link
-              :disabled="row.group.remainingQty <= 0"
-              @click="openCreateDropship(row.group)"
-            >
-              发货
-            </el-button>
-            <el-button
-              type="success"
-              link
-              :disabled="!row.group.refSoId"
-              @click="openCallback(row.group)"
-            >
-              回传单号
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <h4 class="section-title">发货批次</h4>
-    </template>
-
-    <!-- 入仓：原添加发货入口 -->
-    <div v-else-if="!readonly" class="toolbar">
-      <el-button type="primary" :icon="Plus" @click="openCreateStockIn">添加发货</el-button>
-      <span class="hint">每个物流单号需勾选对应商品，一单可含多件</span>
+    <div v-if="isDropship && !readonly" class="toolbar">
+      <el-button type="primary" plain :loading="syncing" @click="handleSyncFromOrders()">同步物流</el-button>
+      <span class="hint">代发「发货」会同时回传订单中心与快递助手；也可「回传单号」单独补传</span>
     </div>
+
+    <!-- 待发明细：代发含销售单/回传；入仓仅规格+待发+状态+发货 -->
+    <el-table :data="soGroupRows" border stripe class="so-group-table" row-key="key">
+      <el-table-column v-if="isDropship" label="销售单" width="160" show-overflow-tooltip>
+        <template #default="{ row }">
+          <el-tag v-if="row.group.unlinked" type="info" effect="plain" size="small">未关联</el-tag>
+          <span v-else>{{ row.group.refOrderNo }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="规格" min-width="220" show-overflow-tooltip>
+        <template #default="{ row }">{{ formatSpecLabel(row.line.skuSpecs, row.line.qty) }}</template>
+      </el-table-column>
+      <el-table-column label="待发" width="80" align="center">
+        <template #default="{ row }">
+          <span :class="{ muted: row.line.remaining <= 0 }">{{ row.line.remaining }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="状态" width="100" align="center">
+        <template #default="{ row }">{{ row.lineStatus }}</template>
+      </el-table-column>
+      <el-table-column v-if="!readonly" label="操作" :width="isDropship ? 180 : 100" fixed="right">
+        <template #default="{ row }">
+          <el-button
+            v-if="isDropship"
+            type="primary"
+            link
+            :disabled="row.group.remainingQty <= 0"
+            @click="openCreateDropship(row.group)"
+          >
+            发货
+          </el-button>
+          <el-button
+            v-else
+            type="primary"
+            link
+            :disabled="row.line.remaining <= 0"
+            @click="openCreateStockInLine(row.line)"
+          >
+            发货
+          </el-button>
+          <el-button
+            v-if="isDropship"
+            type="success"
+            link
+            :disabled="!row.group.refSoId"
+            @click="openCallback(row.group)"
+          >
+            回传单号
+          </el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <h4 class="section-title">发货批次</h4>
 
     <el-table :data="list" border stripe>
       <el-table-column prop="shipmentNo" label="批次号" width="140" />
@@ -679,7 +714,8 @@ const activeGroup = computed(() =>
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="720px">
       <el-form v-loading="loadingAddr" :model="form" label-width="90px">
         <el-form-item v-if="isDropship && activeGroup" label="销售单">
-          <span>{{ activeGroup.refOrderNo }}</span>
+          <el-tag v-if="activeGroup.unlinked" type="info" effect="plain" size="small">未关联</el-tag>
+          <span v-else>{{ activeGroup.refOrderNo }}</span>
         </el-form-item>
         <el-form-item label="快递公司" required>
           <el-select
