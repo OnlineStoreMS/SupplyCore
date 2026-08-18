@@ -29,15 +29,18 @@ func NewClient(baseURL string) *Client {
 }
 
 type OrderItemBrief struct {
-	ID          uint64  `json:"id"`
-	SkuID       uint64  `json:"skuId"`
-	SkuCode     string  `json:"skuCode"`
-	ProductName string  `json:"productName"`
-	SkuSpecs    string  `json:"skuSpecs"`
-	PicURL      string  `json:"picUrl"`
-	Quantity    int     `json:"quantity"`
-	Price       float64 `json:"price"`
-	TotalAmount float64 `json:"totalAmount"`
+	ID                uint64  `json:"id"`
+	SkuID             uint64  `json:"skuId"`
+	SkuCode           string  `json:"skuCode"`
+	ProductName       string  `json:"productName"`
+	SkuSpecs          string  `json:"skuSpecs"`
+	PicURL            string  `json:"picUrl"`
+	Quantity          int     `json:"quantity"`
+	Price             float64 `json:"price"`
+	TotalAmount       float64 `json:"totalAmount"`
+	ParentOrderItemID uint64  `json:"parentOrderItemId"`
+	SplitKind         string  `json:"splitKind,omitempty"`
+	ShipPlanLineID    uint64  `json:"shipPlanLineId,omitempty"`
 }
 
 type OrderAddressBrief struct {
@@ -50,15 +53,21 @@ type OrderAddressBrief struct {
 	FullText string `json:"fullText"`
 }
 
+type OrderShipmentItemBrief struct {
+	OrderItemID uint64 `json:"orderItemId"`
+	Qty         int    `json:"qty"`
+}
+
 type OrderShipmentBrief struct {
-	ID              uint64  `json:"id"`
-	ShipmentNo      string  `json:"shipmentNo"`
-	ExpressCompany  string  `json:"expressCompany"`
-	ExpressNo       string  `json:"expressNo"`
-	CallbackStatus  string  `json:"callbackStatus"`
-	CallbackMessage string  `json:"callbackMessage"`
-	ShippedAt       *string `json:"shippedAt,omitempty"`
-	Remark          string  `json:"remark"`
+	ID             uint64                   `json:"id"`
+	ShipmentNo     string                   `json:"shipmentNo"`
+	ExpressCompany string                   `json:"expressCompany"`
+	ExpressNo      string                   `json:"expressNo"`
+	CallbackStatus string                   `json:"callbackStatus"`
+	CallbackMessage string                  `json:"callbackMessage"`
+	ShippedAt      *string                  `json:"shippedAt,omitempty"`
+	Remark         string                   `json:"remark"`
+	Items          []OrderShipmentItemBrief `json:"items,omitempty"`
 }
 
 type OrderBrief struct {
