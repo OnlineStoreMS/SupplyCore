@@ -260,7 +260,7 @@ function rebuildSoGroups() {
   soGroups.value = groups
 }
 
-/** 待发明细树：已拆分仅展示子规格行；未拆分展示原行 */
+/** 待发明细树：根行 + └ 拆分子行（对齐订单中心展示） */
 const soGroupRows = computed(() => {
   const rows: {
     key: string
@@ -325,18 +325,26 @@ const soGroupRows = computed(() => {
     for (const root of roots) {
       const kids = childrenByParent.get(root.poItemId) || []
       if (kids.length > 0) {
-        // 已拆分：不再展示父行原规格，只列子规格；首行挂销售单/编辑拆分/回传
-        kids.forEach((ch, idx) => {
+        // 树形：父行（已拆分、不可发）+ └ 子规格（可发）
+        pushLine(root, {
+          isChild: false,
+          isParent: true,
+          showSalesOrder: true,
+          showSplitBtn: true,
+          showCallbackBtn: true,
+          kids,
+        })
+        for (const ch of kids) {
           pushLine(ch, {
             isChild: true,
             isParent: false,
             splitParent: root,
-            showSalesOrder: idx === 0,
-            showSplitBtn: idx === 0,
-            showCallbackBtn: idx === 0,
+            showSalesOrder: false,
+            showSplitBtn: false,
+            showCallbackBtn: false,
             kids: [],
           })
-        })
+        }
       } else {
         pushLine(root, {
           isChild: false,
@@ -721,11 +729,8 @@ function openSplit(line: LinePick, parent?: LinePick) {
       shipPlanLineId: k.shipPlanLineId || undefined,
     }))
   } else {
-    const half = Math.max(1, Math.floor(target.qty / 2) || 1)
-    splitLines.value = [
-      { skuName: '', qty: half },
-      { skuName: '', qty: Math.max(1, target.qty - half) },
-    ]
+    // 自由添加：默认空表，由用户点「+ 添加规格」
+    splitLines.value = []
   }
   splitVisible.value = true
 }
@@ -735,12 +740,15 @@ function addSplitLine() {
 }
 
 function removeSplitLine(idx: number) {
-  if (splitLines.value.length <= 1) return
   splitLines.value.splice(idx, 1)
 }
 
 async function handleSaveSplit() {
   if (!splitParent.value) return
+  if (!splitLines.value.length) {
+    ElMessage.warning('请先添加拆分规格，或保留至少一行')
+    return
+  }
   for (let i = 0; i < splitLines.value.length; i++) {
     const row = splitLines.value[i]
     if (!row.skuName?.trim()) {
@@ -804,15 +812,16 @@ const activeGroup = computed(() =>
             <el-tag v-if="row.group.unlinked" type="info" effect="plain" size="small">未关联</el-tag>
             <span v-else>{{ row.group.refOrderNo }}</span>
           </template>
-          <span v-else-if="row.isSplitChild" class="muted">└</span>
+          <span v-else class="muted">—</span>
         </template>
       </el-table-column>
       <el-table-column label="规格" min-width="240" show-overflow-tooltip>
         <template #default="{ row }">
           <div class="spec-cell" :class="{ child: row.isSplitChild }">
-            <span v-if="row.isSplitChild && !row.showSalesOrder" class="tree-prefix">└</span>
+            <span v-if="row.isSplitChild" class="tree-prefix">└ </span>
             <span>{{ formatSpecLabel(row.line.skuSpecs || row.line.productName, row.line.qty) }}</span>
-            <el-tag v-if="row.isSplitChild" size="small" type="info" effect="plain" class="split-tag">拆分</el-tag>
+            <el-tag v-if="row.isSplitChild" size="small" type="warning" class="split-tag">拆分</el-tag>
+            <el-tag v-else-if="row.isSplitParent" size="small" type="info" class="split-tag">已拆分</el-tag>
           </div>
         </template>
       </el-table-column>
@@ -833,7 +842,7 @@ const activeGroup = computed(() =>
             link
             @click="openSplit(row.line, row.splitParent)"
           >
-            {{ row.splitParent ? '编辑拆分' : '拆分' }}
+            {{ row.isSplitParent ? '编辑拆分' : '拆分' }}
           </el-button>
           <el-button
             v-if="isDropship && row.line.shippable"
@@ -1066,7 +1075,7 @@ const activeGroup = computed(() =>
         父商品：{{ formatSpecLabel(splitParent.skuSpecs || splitParent.productName, splitParent.qty) }}
         <span v-if="isDropship"> · 保存后同步订单中心拆分明细</span>
       </div>
-      <el-table :data="splitLines" border size="small">
+      <el-table v-if="splitLines.length" :data="splitLines" border size="small">
         <el-table-column label="规格名称" min-width="200">
           <template #default="{ row }">
             <el-input v-model="row.skuName" placeholder="如：红色 / L" />
@@ -1079,10 +1088,11 @@ const activeGroup = computed(() =>
         </el-table-column>
         <el-table-column label="" width="70" align="center">
           <template #default="{ $index }">
-            <el-button link type="danger" :disabled="splitLines.length <= 1" @click="removeSplitLine($index)">删</el-button>
+            <el-button link type="danger" @click="removeSplitLine($index)">删</el-button>
           </template>
         </el-table-column>
       </el-table>
+      <div v-else class="hint" style="margin: 8px 0 4px">暂无拆分行，请点击下方添加</div>
       <el-button class="add-split" type="primary" link @click="addSplitLine">+ 添加规格</el-button>
       <template #footer>
         <el-button @click="splitVisible = false">取消</el-button>
@@ -1157,15 +1167,18 @@ const activeGroup = computed(() =>
   gap: 6px;
 }
 .spec-cell.child {
-  padding-left: 4px;
-  color: var(--el-text-color-regular);
+  padding-left: 8px;
+  color: #475569;
 }
 .tree-prefix {
-  color: var(--el-text-color-placeholder);
+  color: #8f959e;
   margin-right: 2px;
+  flex-shrink: 0;
 }
 .split-tag {
   flex-shrink: 0;
+  margin-left: 2px;
+  vertical-align: middle;
 }
 .add-split {
   margin-top: 10px;
