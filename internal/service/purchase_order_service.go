@@ -67,14 +67,55 @@ func (s *PurchaseOrderService) List(f repo.POListFilter) ([]dto.PurchaseOrderLis
 }
 
 func (s *PurchaseOrderService) Get(id uint64) (*dto.PurchaseOrderDetail, error) {
-	po, err := s.repos.PurchaseOrder.ForTenant(s.tenantID).GetWithItems(id)
+	pr := s.repos.PurchaseOrder.ForTenant(s.tenantID)
+	po, err := pr.GetWithItems(id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
+	if changed := normalizeSplitChildPurchaseAmounts(po); changed {
+		_ = pr.Save(po)
+		for i := range po.Items {
+			it := &po.Items[i]
+			if IsSplitChildPOItem(*it) && !it.Cancelled {
+				_ = pr.SaveItem(it)
+			}
+		}
+	}
 	return s.toDetail(po), nil
+}
+
+// normalizeSplitChildPurchaseAmounts 拆分子行不计采购额；修正历史误填并重算总额。
+func normalizeSplitChildPurchaseAmounts(po *model.PurchaseOrder) bool {
+	if po == nil {
+		return false
+	}
+	changed := false
+	var total float64
+	for i := range po.Items {
+		it := &po.Items[i]
+		if it.Cancelled {
+			continue
+		}
+		if IsSplitChildPOItem(*it) {
+			if it.UnitPrice != 0 || it.LineAmount != 0 || it.SaleAmount != 0 || it.SaleUnitPrice != 0 {
+				it.UnitPrice = 0
+				it.LineAmount = 0
+				it.SaleAmount = 0
+				it.SaleUnitPrice = 0
+				changed = true
+			}
+			continue
+		}
+		total += it.LineAmount
+	}
+	if po.TotalAmount != total {
+		po.TotalAmount = total
+		changed = true
+	}
+	return changed
 }
 
 func (s *PurchaseOrderService) Create(in *dto.PurchaseOrderInput, buyerID uint64, buyerName string) (*dto.PurchaseOrderDetail, error) {
@@ -215,6 +256,9 @@ func (s *PurchaseOrderService) UpdateItemPrices(id uint64, in *dto.UpdatePOItemP
 		if it.Cancelled {
 			continue
 		}
+		if IsSplitChildPOItem(*it) {
+			return nil, fmt.Errorf("拆分子行不参与采购计价，请修改父商品单价")
+		}
 		if row.UnitPrice < 0 {
 			return nil, ErrBadRequest
 		}
@@ -225,9 +269,19 @@ func (s *PurchaseOrderService) UpdateItemPrices(id uint64, in *dto.UpdatePOItemP
 		}
 	}
 
+	// 拆分子行不计采购额；顺带清零历史误填单价
 	var totalActive float64
-	for _, it := range po.Items {
+	for i := range po.Items {
+		it := &po.Items[i]
 		if it.Cancelled {
+			continue
+		}
+		if IsSplitChildPOItem(*it) {
+			if it.UnitPrice != 0 || it.LineAmount != 0 {
+				it.UnitPrice = 0
+				it.LineAmount = 0
+				_ = pr.SaveItem(it)
+			}
 			continue
 		}
 		totalActive += it.LineAmount
@@ -680,6 +734,9 @@ func (s *PurchaseOrderService) DetachSalesOrder(in *dto.DetachSalesOrderInput) (
 		}
 		activeLines++
 		saleActive += it.SaleAmount
+		if IsSplitChildPOItem(it) {
+			continue
+		}
 		totalActive += it.LineAmount
 	}
 	po.SaleAmount = saleActive

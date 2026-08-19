@@ -15,6 +15,7 @@ import {
   PO_STATUS_MAP,
   PAY_STATUS_MAP,
   type PurchaseOrder,
+  type PurchaseOrderItem,
 } from '../../api/purchase'
 import { resolveProductSkus, type ProductSkuSearchItem } from '../../api/productSku'
 import { fetchShipments, type Shipment } from '../../api/poTracking'
@@ -51,8 +52,12 @@ const canEditUnitPrice = computed(() => {
   return po.value.status === 'draft' || po.value.status === 'ordered'
 })
 
-async function onUnitPriceChange(row: { id?: number; unitPrice: number; cancelled?: boolean }) {
+async function onUnitPriceChange(row: PurchaseOrderItem & { id?: number }) {
   if (!po.value || !row.id || row.cancelled || !canEditUnitPrice.value) return
+  if (isSplitChildItem(row)) {
+    ElMessage.warning('拆分子行不参与采购计价')
+    return
+  }
   const price = Number(row.unitPrice)
   if (Number.isNaN(price) || price < 0) {
     ElMessage.warning('采购单价不能为负数')
@@ -69,6 +74,67 @@ async function onUnitPriceChange(row: { id?: number; unitPrice: number; cancelle
     savingPrice.value = false
   }
 }
+
+function isSplitChildItem(it?: PurchaseOrderItem | null) {
+  if (!it) return false
+  return !!(it.splitKind || (it.parentPoItemId && it.parentPoItemId > 0))
+}
+
+/** 基本信息采购明细：父行 + └ 拆分子行（对齐物流/订单中心） */
+const itemTreeRows = computed(() => {
+  const items = po.value?.items || []
+  type Row = {
+    key: string
+    item: PurchaseOrderItem
+    isSplitChild: boolean
+    isSplitParent: boolean
+  }
+  const childrenByParent = new Map<number, PurchaseOrderItem[]>()
+  const fullChildren: PurchaseOrderItem[] = []
+  const roots: PurchaseOrderItem[] = []
+  for (const it of items) {
+    if (it.splitKind === 'full') {
+      fullChildren.push(it)
+      continue
+    }
+    if (it.splitKind === 'partial' && it.parentPoItemId) {
+      const list = childrenByParent.get(it.parentPoItemId) || []
+      list.push(it)
+      childrenByParent.set(it.parentPoItemId, list)
+      continue
+    }
+    roots.push(it)
+  }
+  const out: Row[] = []
+  for (const root of roots) {
+    const kids = childrenByParent.get(root.id || 0) || []
+    out.push({
+      key: `root-${root.id}`,
+      item: root,
+      isSplitChild: false,
+      isSplitParent: kids.length > 0,
+    })
+    for (const ch of kids) {
+      out.push({
+        key: `child-${ch.id}`,
+        item: ch,
+        isSplitChild: true,
+        isSplitParent: false,
+      })
+    }
+  }
+  if (fullChildren.length) {
+    for (const ch of fullChildren) {
+      out.push({
+        key: `full-${ch.id}`,
+        item: ch,
+        isSplitChild: true,
+        isSplitParent: false,
+      })
+    }
+  }
+  return out
+})
 
 function openOrderCore(soId?: number) {
   const id = soId && soId > 0 ? soId : po.value?.refSoId
@@ -207,8 +273,9 @@ function lineSkuCode(row: { skuId: number; skuCode?: string }) {
   return skuMap.value.get(row.skuId)?.skuCode?.trim() || '—'
 }
 
-function itemRowClass({ row }: { row: { cancelled?: boolean } }) {
-  return row.cancelled ? 'po-item-cancelled' : ''
+function itemRowClass({ row }: { row: { item?: PurchaseOrderItem; cancelled?: boolean } }) {
+  const cancelled = row.item?.cancelled ?? row.cancelled
+  return cancelled ? 'po-item-cancelled' : ''
 }
 
 async function doAction(label: string, fn: () => Promise<unknown>) {
@@ -433,13 +500,13 @@ async function handleCopy() {
           </el-descriptions>
 
           <h4 class="section-title">采购明细</h4>
-          <el-table :data="po.items" border stripe :row-class-name="itemRowClass">
+          <el-table :data="itemTreeRows" border stripe :row-class-name="itemRowClass">
             <el-table-column label="图片" width="72" align="center">
               <template #default="{ row }">
                 <el-image
-                  v-if="row.picUrl"
-                  :src="row.picUrl"
-                  :preview-src-list="[row.picUrl]"
+                  v-if="row.item.picUrl"
+                  :src="row.item.picUrl"
+                  :preview-src-list="[row.item.picUrl]"
                   fit="cover"
                   style="width: 40px; height: 40px; border-radius: 4px"
                   preview-teleported
@@ -449,65 +516,86 @@ async function handleCopy() {
             </el-table-column>
             <el-table-column label="销售单" width="140" show-overflow-tooltip>
               <template #default="{ row }">
-                <span :class="{ 'line-cancelled': row.cancelled }">{{ row.refOrderNo || '—' }}</span>
-                <el-tag v-if="row.cancelled" type="info" size="small" class="cancel-tag">已撤回</el-tag>
+                <span v-if="row.isSplitChild" class="muted">—</span>
+                <template v-else>
+                  <span :class="{ 'line-cancelled': row.item.cancelled }">{{ row.item.refOrderNo || '—' }}</span>
+                  <el-tag v-if="row.item.cancelled" type="info" size="small" class="cancel-tag">已撤回</el-tag>
+                </template>
               </template>
             </el-table-column>
-            <el-table-column label="规格" min-width="240" show-overflow-tooltip>
+            <el-table-column label="规格" min-width="260" show-overflow-tooltip>
               <template #default="{ row }">
-                <span :class="{ 'line-cancelled': row.cancelled }">
-                  {{ row.skuSpecs || skuMap.get(row.skuId)?.specLabel || '—' }}
-                </span>
+                <div class="spec-cell" :class="{ child: row.isSplitChild, 'line-cancelled': row.item.cancelled }">
+                  <span v-if="row.isSplitChild" class="tree-prefix">└ </span>
+                  <span>{{
+                    row.isSplitChild
+                      ? (row.item.skuSpecs || row.item.productName || '规格')
+                      : (row.item.skuSpecs || skuMap.get(row.item.skuId)?.specLabel || row.item.productName || '—')
+                  }}</span>
+                  <el-tag v-if="row.isSplitChild" size="small" type="warning" class="split-tag">拆分</el-tag>
+                  <el-tag v-else-if="row.isSplitParent" size="small" type="info" class="split-tag">已拆分</el-tag>
+                </div>
               </template>
             </el-table-column>
             <el-table-column label="商家编码" width="140">
               <template #default="{ row }">
-                <span :class="{ 'line-cancelled': row.cancelled }">{{ lineSkuCode(row) }}</span>
+                <span v-if="row.isSplitChild" class="muted">—</span>
+                <span v-else :class="{ 'line-cancelled': row.item.cancelled }">{{ lineSkuCode(row.item) }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="supplierSkuCode" label="对方货号" width="120">
               <template #default="{ row }">
-                <span :class="{ 'line-cancelled': row.cancelled }">{{ row.supplierSkuCode || '—' }}</span>
+                <span v-if="row.isSplitChild" class="muted">—</span>
+                <span v-else :class="{ 'line-cancelled': row.item.cancelled }">{{ row.item.supplierSkuCode || '—' }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="qty" label="数量" width="80" align="center">
               <template #default="{ row }">
-                <span :class="{ 'line-cancelled': row.cancelled }">{{ row.qty }}</span>
+                <span :class="{ 'line-cancelled': row.item.cancelled }">{{ row.item.qty }}</span>
               </template>
             </el-table-column>
             <el-table-column label="实付金额" width="110" align="right">
               <template #default="{ row }">
-                <span v-if="row.saleAmount > 0" :class="{ 'line-cancelled': row.cancelled }">¥{{ Number(row.saleAmount).toFixed(2) }}</span>
+                <span v-if="row.isSplitChild" class="muted">—</span>
+                <span v-else-if="(row.item.saleAmount || 0) > 0" :class="{ 'line-cancelled': row.item.cancelled }">
+                  ¥{{ Number(row.item.saleAmount).toFixed(2) }}
+                </span>
                 <span v-else class="muted">—</span>
               </template>
             </el-table-column>
             <el-table-column label="采购单价" width="120" align="right" class-name="unit-price-col">
               <template #default="{ row }">
+                <span v-if="row.isSplitChild" class="muted">—</span>
                 <el-input
-                  v-if="canEditUnitPrice && !row.cancelled"
-                  v-model="row.unitPrice"
+                  v-else-if="canEditUnitPrice && !row.item.cancelled"
+                  v-model="row.item.unitPrice"
                   size="small"
                   class="unit-price-input"
                   :disabled="savingPrice"
-                  @change="onUnitPriceChange(row)"
+                  @change="onUnitPriceChange(row.item)"
                 />
-                <span v-else :class="{ 'line-cancelled': row.cancelled }">¥{{ Number(row.unitPrice || 0).toFixed(2) }}</span>
+                <span v-else :class="{ 'line-cancelled': row.item.cancelled }">¥{{ Number(row.item.unitPrice || 0).toFixed(2) }}</span>
               </template>
             </el-table-column>
             <el-table-column label="采购小计" width="110" align="right">
               <template #default="{ row }">
-                <span :class="{ 'line-cancelled': row.cancelled }">¥{{ row.lineAmount.toFixed(2) }}</span>
+                <span v-if="row.isSplitChild" class="muted">—</span>
+                <span v-else :class="{ 'line-cancelled': row.item.cancelled }">
+                  ¥{{ Number(row.item.lineAmount || 0).toFixed(2) }}
+                </span>
               </template>
             </el-table-column>
             <el-table-column label="物流" min-width="160" show-overflow-tooltip>
               <template #default="{ row }">
-                <template v-if="row.id && logisticsByItem.get(row.id)?.length">
-                  <div v-for="t in logisticsByItem.get(row.id)" :key="t">{{ t }}</div>
+                <template v-if="row.item.id && logisticsByItem.get(row.item.id)?.length">
+                  <div v-for="t in logisticsByItem.get(row.item.id)" :key="t">{{ t }}</div>
                 </template>
                 <span v-else class="muted">未关联</span>
               </template>
             </el-table-column>
-            <el-table-column prop="remark" label="商品备注" min-width="160" show-overflow-tooltip />
+            <el-table-column prop="remark" label="商品备注" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.item.remark || '—' }}</template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
 
@@ -612,5 +700,21 @@ async function handleCopy() {
   margin-top: 6px;
   font-size: 12px;
   color: #909399;
+}
+.spec-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.spec-cell.child {
+  padding-left: 8px;
+  color: #475569;
+}
+.tree-prefix {
+  color: #8f959e;
+  flex-shrink: 0;
+}
+.split-tag {
+  flex-shrink: 0;
 }
 </style>

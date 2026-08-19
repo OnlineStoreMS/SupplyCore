@@ -232,10 +232,34 @@ func (s *POTrackingService) SplitPOItem(ctx context.Context, poID, parentItemID 
 		}
 	}
 
+	// 采购总额只计父行；清零子行误填单价
 	detail, gerr := pr.GetWithItems(poID)
 	if gerr != nil {
 		return nil, gerr
 	}
+	var totalActive float64
+	for i := range detail.Items {
+		it := &detail.Items[i]
+		if it.Cancelled {
+			continue
+		}
+		if IsSplitChildPOItem(*it) {
+			if it.UnitPrice != 0 || it.LineAmount != 0 || it.SaleAmount != 0 || it.SaleUnitPrice != 0 {
+				it.UnitPrice = 0
+				it.LineAmount = 0
+				it.SaleAmount = 0
+				it.SaleUnitPrice = 0
+				_ = pr.SaveItem(it)
+			}
+			continue
+		}
+		totalActive += it.LineAmount
+	}
+	if detail.TotalAmount != totalActive {
+		detail.TotalAmount = totalActive
+		_ = pr.Save(detail)
+	}
+
 	ps := NewPurchaseOrderService(s.repos).ForTenant(s.tenantID)
 	result.PurchaseOrderDetail = ps.toDetail(detail)
 	return result, nil
@@ -252,13 +276,17 @@ func (s *POTrackingService) pushSplitToOrderCore(
 	if err != nil {
 		return "", err
 	}
+	// 订单同步可能重建明细 ID，已存的 refOrderItemId 常会过期，须校验并重匹配
 	parentOCID := parent.RefOrderItemID
+	if parentOCID > 0 && !orderHasRootItem(order, parentOCID) {
+		parentOCID = 0
+	}
 	if parentOCID == 0 {
 		parentOCID = matchRootOrderItemID(order, *parent)
-		if parentOCID > 0 {
-			parent.RefOrderItemID = parentOCID
-			_ = s.repos.PurchaseOrder.ForTenant(s.tenantID).SaveItem(parent)
-		}
+	}
+	if parentOCID > 0 && parent.RefOrderItemID != parentOCID {
+		parent.RefOrderItemID = parentOCID
+		_ = s.repos.PurchaseOrder.ForTenant(s.tenantID).SaveItem(parent)
 	}
 	if parentOCID == 0 {
 		return "", fmt.Errorf("无法匹配订单中心父商品行，请确认采购明细已关联销售单商品")
@@ -300,6 +328,19 @@ func (s *POTrackingService) pushSplitToOrderCore(
 		}
 	}
 	return "", nil
+}
+
+func orderHasRootItem(order *ordercore.OrderBrief, itemID uint64) bool {
+	if order == nil || itemID == 0 {
+		return false
+	}
+	for _, it := range order.Items {
+		if it.ID != itemID {
+			continue
+		}
+		return strings.TrimSpace(it.SplitKind) == "" && it.ParentOrderItemID == 0
+	}
+	return false
 }
 
 func matchRootOrderItemID(order *ordercore.OrderBrief, poItem model.PurchaseOrderItem) uint64 {
@@ -401,6 +442,10 @@ func (s *POTrackingService) syncSplitChildrenFromOrder(po *model.PurchaseOrder, 
 			existing.ProductName = sku
 			existing.SkuSpecs = sku
 			existing.Qty = ocIt.Quantity
+			existing.UnitPrice = 0
+			existing.LineAmount = 0
+			existing.SaleAmount = 0
+			existing.SaleUnitPrice = 0
 			if ocIt.ShipPlanLineID > 0 {
 				existing.ShipPlanLineID = ocIt.ShipPlanLineID
 			}
@@ -413,6 +458,10 @@ func (s *POTrackingService) syncSplitChildrenFromOrder(po *model.PurchaseOrder, 
 				existing.ProductName = sku
 				existing.SkuSpecs = sku
 				existing.Qty = ocIt.Quantity
+				existing.UnitPrice = 0
+				existing.LineAmount = 0
+				existing.SaleAmount = 0
+				existing.SaleUnitPrice = 0
 				_ = pr.SaveItem(existing)
 				continue
 			}
@@ -435,6 +484,8 @@ func (s *POTrackingService) syncSplitChildrenFromOrder(po *model.PurchaseOrder, 
 			PicURL:          firstNonEmpty(ocIt.PicURL, parent.PicURL),
 			SupplierSkuCode:  parent.SupplierSkuCode,
 			Qty:             ocIt.Quantity,
+			UnitPrice:       0,
+			LineAmount:      0,
 			RefSoID:         parent.RefSoID,
 			RefOrderNo:      parent.RefOrderNo,
 			RefOrderItemID:  ocIt.ID,
