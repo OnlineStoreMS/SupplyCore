@@ -47,9 +47,9 @@ func IsShippablePOItem(items []model.PurchaseOrderItem, it model.PurchaseOrderIt
 	return true
 }
 
-// SplitPOItem 按商品拆分规格：重建未发子行；代发且已关联销售单时同步订单中心。
+// SplitPOItem 按商品拆分规格：重建未发子行；lines 为空则取消拆分。代发且已关联销售单时同步订单中心。
 func (s *POTrackingService) SplitPOItem(ctx context.Context, poID, parentItemID uint64, bearerToken string, in *dto.SplitPOItemInput) (*dto.SplitPOItemResult, error) {
-	if in == nil || len(in.Lines) == 0 {
+	if in == nil {
 		return nil, ErrBadRequest
 	}
 	po, err := s.ensurePOTrackable(poID)
@@ -103,6 +103,7 @@ func (s *POTrackingService) SplitPOItem(ctx context.Context, poID, parentItemID 
 	}
 	byPlan := map[uint64]*childState{}
 	var unshippedChildren []model.PurchaseOrderItem
+	var shippedChildren []model.PurchaseOrderItem
 	for _, it := range full.Items {
 		if it.ParentPOItemID != parent.ID {
 			continue
@@ -114,7 +115,14 @@ func (s *POTrackingService) SplitPOItem(ctx context.Context, poID, parentItemID 
 		}
 		if !shipped {
 			unshippedChildren = append(unshippedChildren, it)
+		} else {
+			shippedChildren = append(shippedChildren, it)
 		}
+	}
+
+	// 清空拆分：不允许丢弃已发子行
+	if len(in.Lines) == 0 && len(shippedChildren) > 0 {
+		return nil, fmt.Errorf("已有拆分行发货，无法取消全部拆分；请保留已发规格")
 	}
 
 	keepPlan := map[uint64]struct{}{}
@@ -296,22 +304,28 @@ func (s *POTrackingService) pushSplitToOrderCore(
 		if ch.ShipPlanLineID == 0 {
 			continue
 		}
+		sku := strings.TrimSpace(ch.SkuSpecs)
+		if sku == "" {
+			sku = strings.TrimSpace(ch.ProductName)
+		}
 		lines = append(lines, ordercore.SplitItemLineInput{
 			ParentOrderItemID: parentOCID,
-			SkuName:           strings.TrimSpace(ch.SkuSpecs),
+			SkuName:           sku,
 			Qty:               ch.Qty,
 			ShipPlanLineID:    ch.ShipPlanLineID,
 		})
 	}
-	if len(lines) == 0 {
-		return "", fmt.Errorf("没有可同步的拆分行")
-	}
+	// lines 为空 = 取消该父行拆分，仍须通知订单中心清理未发子行
 	synced, err := s.oc.SyncSplitItems(ctx, bearerToken, refSoID, ordercore.SyncSplitItemsRequest{
-		Mode:  model.SplitKindPartial,
-		Lines: lines,
+		Mode:              model.SplitKindPartial,
+		ParentOrderItemID: parentOCID,
+		Lines:             lines,
 	})
 	if err != nil {
 		return "", err
+	}
+	if synced == nil || len(synced.Lines) == 0 {
+		return "", nil
 	}
 	byPlan := map[uint64]uint64{}
 	for _, l := range synced.Lines {

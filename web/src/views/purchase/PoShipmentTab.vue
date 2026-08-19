@@ -745,18 +745,27 @@ function removeSplitLine(idx: number) {
 
 async function handleSaveSplit() {
   if (!splitParent.value) return
-  if (!splitLines.value.length) {
-    ElMessage.warning('请先添加拆分规格，或保留至少一行')
-    return
-  }
-  for (let i = 0; i < splitLines.value.length; i++) {
-    const row = splitLines.value[i]
-    if (!row.skuName?.trim()) {
-      ElMessage.warning(`第 ${i + 1} 行请填写规格名称`)
-      return
+  const clearing = splitLines.value.length === 0
+  if (!clearing) {
+    for (let i = 0; i < splitLines.value.length; i++) {
+      const row = splitLines.value[i]
+      if (!row.skuName?.trim()) {
+        ElMessage.warning(`第 ${i + 1} 行请填写规格名称`)
+        return
+      }
+      if (!row.qty || row.qty < 1) {
+        ElMessage.warning(`第 ${i + 1} 行数量须大于 0`)
+        return
+      }
     }
-    if (!row.qty || row.qty < 1) {
-      ElMessage.warning(`第 ${i + 1} 行数量须大于 0`)
+  } else {
+    try {
+      await ElMessageBox.confirm(
+        '将删除该商品全部未发拆分行，恢复为未拆分。已发拆分行不可取消。确认继续？',
+        '取消拆分',
+        { type: 'warning', confirmButtonText: '确认取消拆分', cancelButtonText: '返回' },
+      )
+    } catch {
       return
     }
   }
@@ -772,7 +781,9 @@ async function handleSaveSplit() {
       })),
     )
     if (res.syncWarning) {
-      ElMessage.warning(`拆分已保存：${res.syncWarning}`)
+      ElMessage.warning(`${clearing ? '已取消拆分' : '拆分已保存'}：${res.syncWarning}`)
+    } else if (clearing) {
+      ElMessage.success(res.syncedToOrderCore ? '已取消拆分并同步订单中心' : '已取消拆分')
     } else if (res.syncedToOrderCore) {
       ElMessage.success('已拆分并同步订单中心')
     } else {
@@ -782,7 +793,7 @@ async function handleSaveSplit() {
     emit('refresh')
     await loadData()
   } catch (e) {
-    ElMessage.error((e as Error).message || '拆分失败')
+    ElMessage.error((e as Error).message || (clearing ? '取消拆分失败' : '拆分失败'))
   } finally {
     splitSaving.value = false
   }
@@ -1092,11 +1103,15 @@ const activeGroup = computed(() =>
           </template>
         </el-table-column>
       </el-table>
-      <div v-else class="hint" style="margin: 8px 0 4px">暂无拆分行，请点击下方添加</div>
+      <div v-else class="hint" style="margin: 8px 0 4px">
+        暂无拆分行。保存将取消拆分并恢复为未拆分；或点击下方添加规格。
+      </div>
       <el-button class="add-split" type="primary" link @click="addSplitLine">+ 添加规格</el-button>
       <template #footer>
         <el-button @click="splitVisible = false">取消</el-button>
-        <el-button type="primary" :loading="splitSaving" @click="handleSaveSplit">保存拆分</el-button>
+        <el-button type="primary" :loading="splitSaving" @click="handleSaveSplit">
+          {{ splitLines.length ? '保存拆分' : '取消拆分' }}
+        </el-button>
       </template>
     </el-dialog>
 

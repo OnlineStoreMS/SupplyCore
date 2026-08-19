@@ -119,7 +119,8 @@ type SplitPOItemLineInput struct {
 }
 
 type SplitPOItemInput struct {
-	Lines []SplitPOItemLineInput `json:"lines" binding:"required,min=1"`
+	// Lines 为空表示取消拆分（恢复为未拆分）；已发子行不可取消
+	Lines []SplitPOItemLineInput `json:"lines"`
 }
 
 type SplitPOItemResult struct {

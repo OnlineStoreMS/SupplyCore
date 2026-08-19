@@ -265,8 +265,9 @@ func (c *Client) putJSON(ctx context.Context, bearerToken, path string, body any
 }
 
 type SyncSplitItemsRequest struct {
-	Mode  string               `json:"mode"`
-	Lines []SplitItemLineInput `json:"lines"`
+	Mode              string               `json:"mode"`
+	ParentOrderItemID uint64               `json:"parentOrderItemId,omitempty"`
+	Lines             []SplitItemLineInput `json:"lines"`
 }
 
 type SplitItemLineInput struct {
