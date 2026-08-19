@@ -163,6 +163,7 @@ func poListOrderClause(sortBy, sortOrder string) string {
 }
 
 // ListDropshipMergeable 可结算合并的代发单：草稿/已下单且未付款，按创建时间窗口。
+// 排除整单无 ref_so_id 且无 ref_trace_id 的手工代发单。
 func (r *PurchaseOrderRepo) ListDropshipMergeable(supplierID uint64, from, to time.Time) ([]model.PurchaseOrder, error) {
 	var list []model.PurchaseOrder
 	err := r.db.Scopes(scopeTenant(r.tenantID)).
@@ -170,6 +171,7 @@ func (r *PurchaseOrderRepo) ListDropshipMergeable(supplierID uint64, from, to ti
 		Where("fulfillment_type = ?", model.POFulfillmentDropship).
 		Where("status IN ?", []string{model.POStatusDraft, model.POStatusOrdered}).
 		Where("pay_status = ?", model.POPayStatusUnpaid).
+		Where("(ref_so_id > 0 OR NULLIF(TRIM(ref_trace_id), '') IS NOT NULL)").
 		Where("created_at >= ? AND created_at < ?", from, to).
 		Order("id ASC").
 		Find(&list).Error

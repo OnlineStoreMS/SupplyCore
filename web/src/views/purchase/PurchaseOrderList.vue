@@ -132,6 +132,7 @@ const canMerge = computed(() => {
 function isMergeableDropship(row: PurchaseOrderListItem) {
   if (row.fulfillmentType !== 'dropship') return false
   if (row.payStatus === 'paid' || row.payStatus === 'partial') return false
+  if (!(row.refSoId && row.refSoId > 0) && !row.refTraceId?.trim()) return false
   return true
 }
 
@@ -504,7 +505,7 @@ function onSelectionChange(rows: PurchaseOrderListItem[]) {
 
 async function handleMerge() {
   if (!canMerge.value) {
-    ElMessage.warning('请选择同一供应商下至少 2 张未付款代发单（草稿或已下单）')
+    ElMessage.warning('请选择同一供应商下至少 2 张已关联销售单、未付款的代发单（草稿或已下单）')
     return
   }
   const nos = selected.value.map((r) => r.poNo).join('、')

@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -338,6 +339,17 @@ func (s *PurchaseOrderService) Cancel(id uint64) (*dto.PurchaseOrderDetail, erro
 	return s.Get(id)
 }
 
+// dropshipPOHasSalesOrderRef 代发单是否关联 OMS 销售单（单头 ref_so_id 或 ref_trace_id 任一有效）。
+func dropshipPOHasSalesOrderRef(po *model.PurchaseOrder) bool {
+	if po == nil {
+		return false
+	}
+	if po.RefSoID > 0 {
+		return true
+	}
+	return strings.TrimSpace(po.RefTraceID) != ""
+}
+
 // Merge 将多张草稿代发单合并到目标单：明细拼接、销售金额合计、关联单号合并；源单删除。
 func (s *PurchaseOrderService) Merge(in *dto.MergePurchaseOrdersInput) (*dto.MergePurchaseOrdersResult, error) {
 	if in == nil || len(in.SourcePoIDs) < 2 {
@@ -398,6 +410,28 @@ func (s *PurchaseOrderService) Merge(in *dto.MergePurchaseOrdersInput) (*dto.Mer
 			return nil, ErrBadRequest
 		}
 	}
+
+	eligible := make([]*model.PurchaseOrder, 0, len(pos))
+	for _, po := range pos {
+		if dropshipPOHasSalesOrderRef(po) {
+			eligible = append(eligible, po)
+		}
+	}
+	if len(eligible) < 2 {
+		return nil, fmt.Errorf("%w: 需至少 2 张已关联销售单的代发单方可合并（手工代发单不可参与）", ErrBadRequest)
+	}
+	sort.Slice(eligible, func(i, j int) bool { return eligible[i].ID < eligible[j].ID })
+	target = nil
+	for _, po := range eligible {
+		if po.ID == targetID {
+			target = po
+			break
+		}
+	}
+	if target == nil {
+		target = eligible[0]
+	}
+	pos = eligible
 
 	mergedItems := make([]model.PurchaseOrderItem, 0)
 	oldItemIDs := make([]uint64, 0)

@@ -260,12 +260,16 @@ function rebuildSoGroups() {
   soGroups.value = groups
 }
 
-/** 待发明细树：父行 + └ 拆分子行（代发按销售单分组） */
+/** 待发明细树：已拆分仅展示子规格行；未拆分展示原行 */
 const soGroupRows = computed(() => {
   const rows: {
     key: string
     group: SalesOrderGroup
     line: LinePick
+    splitParent?: LinePick
+    showSalesOrder: boolean
+    showSplitBtn: boolean
+    showCallbackBtn: boolean
     lineStatus: string
     isSplitChild: boolean
     isSplitParent: boolean
@@ -282,28 +286,66 @@ const soGroupRows = computed(() => {
       }
       roots.push(line)
     }
+    const pushLine = (
+      line: LinePick,
+      opts: {
+        isChild: boolean
+        isParent: boolean
+        splitParent?: LinePick
+        showSalesOrder: boolean
+        showSplitBtn: boolean
+        showCallbackBtn: boolean
+        kids?: LinePick[]
+      },
+    ) => {
+      const kids = opts.kids || []
+      const done = line.shippable
+        ? line.remaining <= 0
+        : (kids.length > 0 && kids.every((k) => k.remaining <= 0))
+      const partial = line.shippable
+        ? (line.shippedQty > 0 && line.remaining > 0)
+        : kids.some((k) => k.shippedQty > 0) && !kids.every((k) => k.remaining <= 0)
+      let status = '待发货'
+      if (!line.shippable && kids.length) status = done ? '已登记物流' : partial ? '部分发货' : '已拆分'
+      else if (done) status = '已登记物流'
+      else if (partial) status = '部分发货'
+      rows.push({
+        key: `${g.key}:${line.poItemId}`,
+        group: g,
+        line,
+        splitParent: opts.splitParent,
+        showSalesOrder: opts.showSalesOrder,
+        showSplitBtn: opts.showSplitBtn,
+        showCallbackBtn: opts.showCallbackBtn,
+        lineStatus: status,
+        isSplitChild: opts.isChild,
+        isSplitParent: opts.isParent,
+      })
+    }
     for (const root of roots) {
       const kids = childrenByParent.get(root.poItemId) || []
-      const pushLine = (line: LinePick, isChild: boolean, isParent: boolean) => {
-        const done = line.shippable ? line.remaining <= 0 : (kids.length > 0 && kids.every((k) => k.remaining <= 0))
-        const partial = line.shippable
-          ? (line.shippedQty > 0 && line.remaining > 0)
-          : kids.some((k) => k.shippedQty > 0) && !kids.every((k) => k.remaining <= 0)
-        let status = '待发货'
-        if (!line.shippable && kids.length) status = done ? '已登记物流' : partial ? '部分发货' : '已拆分'
-        else if (done) status = '已登记物流'
-        else if (partial) status = '部分发货'
-        rows.push({
-          key: `${g.key}:${line.poItemId}`,
-          group: g,
-          line,
-          lineStatus: status,
-          isSplitChild: isChild,
-          isSplitParent: isParent,
+      if (kids.length > 0) {
+        // 已拆分：不再展示父行原规格，只列子规格；首行挂销售单/编辑拆分/回传
+        kids.forEach((ch, idx) => {
+          pushLine(ch, {
+            isChild: true,
+            isParent: false,
+            splitParent: root,
+            showSalesOrder: idx === 0,
+            showSplitBtn: idx === 0,
+            showCallbackBtn: idx === 0,
+            kids: [],
+          })
+        })
+      } else {
+        pushLine(root, {
+          isChild: false,
+          isParent: false,
+          showSalesOrder: true,
+          showSplitBtn: true,
+          showCallbackBtn: true,
         })
       }
-      pushLine(root, false, kids.length > 0)
-      for (const ch of kids) pushLine(ch, true, false)
     }
   }
   return rows
@@ -662,13 +704,16 @@ async function handleDelete(row: Shipment) {
 }
 
 
-function openSplit(line: LinePick) {
-  if (line.isSplitChild) {
+function openSplit(line: LinePick, parent?: LinePick) {
+  const target = parent || (line.isSplitChild && line.parentPoItemId
+    ? linePicks.value.find((l) => l.poItemId === line.parentPoItemId)
+    : line)
+  if (!target || target.isSplitChild) {
     ElMessage.warning('请在父商品上编辑拆分')
     return
   }
-  splitParent.value = line
-  const kids = linePicks.value.filter((l) => l.parentPoItemId === line.poItemId && l.isSplitChild)
+  splitParent.value = target
+  const kids = linePicks.value.filter((l) => l.parentPoItemId === target.poItemId && l.isSplitChild)
   if (kids.length) {
     splitLines.value = kids.map((k) => ({
       skuName: k.skuSpecs || k.productName,
@@ -676,9 +721,10 @@ function openSplit(line: LinePick) {
       shipPlanLineId: k.shipPlanLineId || undefined,
     }))
   } else {
+    const half = Math.max(1, Math.floor(target.qty / 2) || 1)
     splitLines.value = [
-      { skuName: line.skuSpecs || '', qty: Math.max(1, Math.floor(line.qty / 2) || 1) },
-      { skuName: '', qty: Math.max(1, line.qty - Math.max(1, Math.floor(line.qty / 2) || 1)) },
+      { skuName: '', qty: half },
+      { skuName: '', qty: Math.max(1, target.qty - half) },
     ]
   }
   splitVisible.value = true
@@ -754,20 +800,19 @@ const activeGroup = computed(() =>
     <el-table :data="soGroupRows" border stripe class="so-group-table" row-key="key">
       <el-table-column v-if="isDropship" label="销售单" width="160" show-overflow-tooltip>
         <template #default="{ row }">
-          <template v-if="!row.isSplitChild">
+          <template v-if="row.showSalesOrder">
             <el-tag v-if="row.group.unlinked" type="info" effect="plain" size="small">未关联</el-tag>
             <span v-else>{{ row.group.refOrderNo }}</span>
           </template>
-          <span v-else class="muted">└</span>
+          <span v-else-if="row.isSplitChild" class="muted">└</span>
         </template>
       </el-table-column>
       <el-table-column label="规格" min-width="240" show-overflow-tooltip>
         <template #default="{ row }">
           <div class="spec-cell" :class="{ child: row.isSplitChild }">
-            <span v-if="row.isSplitChild" class="tree-prefix">└</span>
+            <span v-if="row.isSplitChild && !row.showSalesOrder" class="tree-prefix">└</span>
             <span>{{ formatSpecLabel(row.line.skuSpecs || row.line.productName, row.line.qty) }}</span>
-            <el-tag v-if="row.isSplitParent" size="small" type="warning" effect="plain" class="split-tag">已拆分</el-tag>
-            <el-tag v-else-if="row.isSplitChild" size="small" type="info" effect="plain" class="split-tag">拆分</el-tag>
+            <el-tag v-if="row.isSplitChild" size="small" type="info" effect="plain" class="split-tag">拆分</el-tag>
           </div>
         </template>
       </el-table-column>
@@ -783,12 +828,12 @@ const activeGroup = computed(() =>
       <el-table-column v-if="!readonly" label="操作" :width="isDropship ? 220 : 140" fixed="right">
         <template #default="{ row }">
           <el-button
-            v-if="!row.isSplitChild"
+            v-if="row.showSplitBtn"
             type="warning"
             link
-            @click="openSplit(row.line)"
+            @click="openSplit(row.line, row.splitParent)"
           >
-            拆分
+            {{ row.splitParent ? '编辑拆分' : '拆分' }}
           </el-button>
           <el-button
             v-if="isDropship && row.line.shippable"
@@ -809,7 +854,7 @@ const activeGroup = computed(() =>
             发货
           </el-button>
           <el-button
-            v-if="isDropship && !row.isSplitChild"
+            v-if="isDropship && row.showCallbackBtn"
             type="success"
             link
             :disabled="!row.group.refSoId"
