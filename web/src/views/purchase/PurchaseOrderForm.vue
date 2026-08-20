@@ -70,16 +70,47 @@ const form = ref<PurchaseOrderInput>({
   currency: 'CNY',
   remark: '',
   orderedAt: defaultPurchaseAt(),
-  items: [{ qty: 1, unitPrice: 0 }],
+  items: [{ qty: 1, unitPrice: 0, lineAmount: 0 }],
 })
 
 function roundMoney(n: number) {
   return Math.round((n + Number.EPSILON) * 100) / 100
 }
 
+function syncLineAmountFromUnit(row: { qty: number; unitPrice?: number; lineAmount?: number }) {
+  row.lineAmount = roundMoney((row.qty || 0) * (row.unitPrice || 0))
+}
+
+function syncUnitPriceFromLine(row: { qty: number; unitPrice?: number; lineAmount?: number }) {
+  const qty = row.qty > 0 ? row.qty : 1
+  row.unitPrice = roundMoney((Number(row.lineAmount) || 0) / qty)
+}
+
+function onFormUnitPriceChange(row: { qty: number; unitPrice?: number; lineAmount?: number }) {
+  const price = Number(row.unitPrice)
+  if (Number.isNaN(price) || price < 0) {
+    row.unitPrice = 0
+  }
+  syncLineAmountFromUnit(row)
+}
+
+function onFormLineAmountChange(row: { qty: number; unitPrice?: number; lineAmount?: number }) {
+  const amount = Number(row.lineAmount)
+  if (Number.isNaN(amount) || amount < 0) {
+    row.lineAmount = 0
+  }
+  syncUnitPriceFromLine(row)
+}
+
+function onFormQtyChange(row: { qty: number; unitPrice?: number; lineAmount?: number }) {
+  if (!row.qty || row.qty < 1) row.qty = 1
+  // 改数量时按单价重算小计（保留单价）
+  syncLineAmountFromUnit(row)
+}
+
 function mapOrderToLines(order: OrderBrief) {
   const items = order.items || []
-  if (!items.length) return [{ qty: 1, unitPrice: 0 }]
+  if (!items.length) return [{ qty: 1, unitPrice: 0, lineAmount: 0 }]
 
   let pay = Number(order.payAmount || 0)
   if (pay <= 0) pay = Number(order.totalAmount || 0)
@@ -141,6 +172,7 @@ function mapOrderToLines(order: OrderBrief) {
       saleUnitPrice: saleUnit,
       saleAmount: saleAmt,
       unitPrice,
+      lineAmount: roundMoney(qty * (unitPrice || 0)),
       refSoId: order.id || undefined,
       refOrderNo: order.orderNo || undefined,
       remark: lineRemark || undefined,
@@ -240,6 +272,7 @@ async function loadPO() {
         saleUnitPrice: it.saleUnitPrice,
         saleAmount: it.saleAmount,
         unitPrice: it.unitPrice,
+        lineAmount: roundMoney(Number(it.lineAmount ?? it.qty * (it.unitPrice || 0))),
         remark: it.remark,
       })),
     }
@@ -272,12 +305,13 @@ watch(() => form.value.supplierId, async (id) => {
     if (!offer) continue
     line.offerId = offer.id
     line.unitPrice = offer.supplyPrice
+    syncLineAmountFromUnit(line)
     if (offer.supplierSkuCode) line.supplierSkuCode = offer.supplierSkuCode
   }
 })
 
 function addLine() {
-  form.value.items.push({ qty: 1, unitPrice: 0 })
+  form.value.items.push({ qty: 1, unitPrice: 0, lineAmount: 0 })
 }
 
 function removeLine(index: number) {
@@ -293,6 +327,7 @@ function applyOffer(index: number, offerId: number) {
   line.skuId = offer.skuId
   line.supplierSkuCode = offer.supplierSkuCode
   line.unitPrice = offer.supplyPrice
+  syncLineAmountFromUnit(line)
   const info = offerSkuMap.value.get(offer.skuId)
   if (info?.productName) line.productName = info.productName
   if (info?.skuCode) line.skuCode = info.skuCode
@@ -362,6 +397,7 @@ async function saveInlineOffer() {
     await loadOffers(form.value.supplierId)
     line.offerId = created.id
     line.unitPrice = created.supplyPrice
+    syncLineAmountFromUnit(line)
     line.supplierSkuCode = created.supplierSkuCode || offerDraft.value.supplierSkuCode
     offerDialogVisible.value = false
     ElMessage.success('已保存到 SKU 供货报价并应用到本行')
@@ -558,7 +594,13 @@ async function handleSave() {
         </el-table-column>
         <el-table-column label="数量" width="90">
           <template #default="{ row }">
-            <el-input-number v-model="row.qty" :min="1" controls-position="right" style="width: 100%" />
+            <el-input-number
+              v-model="row.qty"
+              :min="1"
+              controls-position="right"
+              style="width: 100%"
+              @change="onFormQtyChange(row)"
+            />
           </template>
         </el-table-column>
         <el-table-column label="实付金额" width="100" align="right">
@@ -575,11 +617,21 @@ async function handleSave() {
               :precision="2"
               controls-position="right"
               style="width: 100%"
+              @change="onFormUnitPriceChange(row)"
             />
           </template>
         </el-table-column>
-        <el-table-column label="采购小计" width="90" align="right">
-          <template #default="{ row }">¥{{ (row.qty * (row.unitPrice || 0)).toFixed(2) }}</template>
+        <el-table-column label="采购小计" width="120">
+          <template #default="{ row }">
+            <el-input-number
+              v-model="row.lineAmount"
+              :min="0"
+              :precision="2"
+              controls-position="right"
+              style="width: 100%"
+              @change="onFormLineAmountChange(row)"
+            />
+          </template>
         </el-table-column>
         <el-table-column width="50" align="center">
           <template #default="{ $index }">

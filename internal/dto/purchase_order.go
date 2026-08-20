@@ -120,7 +120,7 @@ type DetachSalesOrderInput struct {
 	Reason   string `json:"reason"`
 }
 
-// UpdatePOItemPriceInput 更新采购明细单价（已下单未付款也可改）。
+// UpdatePOItemPriceInput 更新采购明细单价（订单完成前均可改）。
 type UpdatePOItemPriceInput struct {
 	ItemID    uint64  `json:"itemId" binding:"required"`
 	UnitPrice float64 `json:"unitPrice"`

@@ -224,7 +224,7 @@ func (s *PurchaseOrderService) Update(id uint64, in *dto.PurchaseOrderInput) (*d
 }
 
 // UpdateItemPrices 更新明细采购单价并重算小计/采购总额。
-// 代发单常自动提交并进入物流态后才补单价，故未付款且未完结即可改。
+// 订单完成前均可改（含已付款/物流中）；已完成、已取消不可改。
 func (s *PurchaseOrderService) UpdateItemPrices(id uint64, in *dto.UpdatePOItemPricesInput) (*dto.PurchaseOrderDetail, error) {
 	if in == nil || len(in.Items) == 0 {
 		return nil, ErrBadRequest
@@ -239,9 +239,6 @@ func (s *PurchaseOrderService) UpdateItemPrices(id uint64, in *dto.UpdatePOItemP
 	}
 	if po.Status == model.POStatusCompleted || po.Status == model.POStatusCancelled {
 		return nil, ErrInvalidStatus
-	}
-	if po.PayStatus == model.POPayStatusPaid || po.PayStatus == model.POPayStatusPartial {
-		return nil, fmt.Errorf("已付款单据不可修改采购单价")
 	}
 
 	byID := make(map[uint64]*model.PurchaseOrderItem, len(po.Items))

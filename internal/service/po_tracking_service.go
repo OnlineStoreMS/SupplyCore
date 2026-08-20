@@ -96,10 +96,13 @@ func (s *POTrackingService) CreateShipment(poID uint64, in *dto.ShipmentInput) (
 	if err != nil {
 		return nil, err
 	}
+	// 填写物流单号即视为已发货（与自营中心 / 从订单中心同步一致）；pending 仅保留给历史草稿批次
+	now := time.Now()
 	sh := &model.PurchaseShipment{
-		POID: poID, ShipmentNo: no, Status: model.ShipmentStatusPending,
+		POID: poID, ShipmentNo: no, Status: model.ShipmentStatusShipped,
 		CarrierCode: in.CarrierCode, CarrierName: in.CarrierName,
 		TrackingNo: in.TrackingNo, ShipFromAddressID: in.ShipFromAddressID,
+		ShippedAt: &now,
 		ReceiverName: in.ReceiverName, ReceiverPhone: in.ReceiverPhone,
 		ReceiverAddress: in.ReceiverAddress, Remark: in.Remark,
 	}

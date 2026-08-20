@@ -94,6 +94,7 @@ export interface PurchaseOrderInput {
     saleUnitPrice?: number
     saleAmount?: number
     unitPrice?: number
+    lineAmount?: number
     remark?: string
   }>
 }

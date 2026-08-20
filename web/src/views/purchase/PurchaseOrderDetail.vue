@@ -45,34 +45,57 @@ const po = ref<PurchaseOrder | null>(null)
 const skuMap = ref<Map<number, ProductSkuSearchItem>>(new Map())
 const shipments = ref<Shipment[]>([])
 
-/** 草稿或已下单且未付款时可改采购单价（代发单常自动提交后补价） */
-const canEditUnitPrice = computed(() => {
+/** 订单完成前可改采购价（已完成/已取消不可改；与付款状态无关） */
+const canEditPurchasePrice = computed(() => {
   if (!po.value) return false
-  if (po.value.payStatus === 'paid' || po.value.payStatus === 'partial') return false
-  return po.value.status === 'draft' || po.value.status === 'ordered'
+  if (po.value.status === 'completed' || po.value.status === 'cancelled') return false
+  return true
 })
 
-async function onUnitPriceChange(row: PurchaseOrderItem & { id?: number }) {
-  if (!po.value || !row.id || row.cancelled || !canEditUnitPrice.value) return
+function roundMoney(n: number) {
+  return Math.round((n + Number.EPSILON) * 100) / 100
+}
+
+async function saveItemUnitPrice(row: PurchaseOrderItem & { id?: number }, unitPrice: number) {
+  if (!po.value || !row.id || row.cancelled || !canEditPurchasePrice.value) return
   if (isSplitChildItem(row)) {
     ElMessage.warning('拆分子行不参与采购计价')
     return
   }
-  const price = Number(row.unitPrice)
-  if (Number.isNaN(price) || price < 0) {
-    ElMessage.warning('采购单价不能为负数')
+  if (Number.isNaN(unitPrice) || unitPrice < 0) {
+    ElMessage.warning('采购金额不能为负数')
     await loadData()
     return
   }
   savingPrice.value = true
   try {
+    const price = roundMoney(unitPrice)
+    row.unitPrice = price
+    row.lineAmount = roundMoney(price * (row.qty || 0))
     po.value = await updatePurchaseOrderItemPrices(poId.value, [{ itemId: row.id, unitPrice: price }])
   } catch (e) {
-    ElMessage.error((e as Error).message || '保存单价失败')
+    ElMessage.error((e as Error).message || '保存采购价失败')
     await loadData()
   } finally {
     savingPrice.value = false
   }
+}
+
+/** 改单价 → 按数量重算小计 */
+async function onUnitPriceChange(row: PurchaseOrderItem & { id?: number }) {
+  await saveItemUnitPrice(row, Number(row.unitPrice))
+}
+
+/** 改小计 → 反推单价（单价 = 小计 / 数量） */
+async function onLineAmountChange(row: PurchaseOrderItem & { id?: number }) {
+  const amount = Number(row.lineAmount)
+  const qty = Number(row.qty) || 0
+  if (qty <= 0) {
+    ElMessage.warning('数量无效，无法反算单价')
+    await loadData()
+    return
+  }
+  await saveItemUnitPrice(row, amount / qty)
 }
 
 function isSplitChildItem(it?: PurchaseOrderItem | null) {
@@ -567,7 +590,7 @@ async function handleCopy() {
               <template #default="{ row }">
                 <span v-if="row.isSplitChild" class="muted">—</span>
                 <el-input
-                  v-else-if="canEditUnitPrice && !row.item.cancelled"
+                  v-else-if="canEditPurchasePrice && !row.item.cancelled"
                   v-model="row.item.unitPrice"
                   size="small"
                   class="unit-price-input"
@@ -577,9 +600,17 @@ async function handleCopy() {
                 <span v-else :class="{ 'line-cancelled': row.item.cancelled }">¥{{ Number(row.item.unitPrice || 0).toFixed(2) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="采购小计" width="110" align="right">
+            <el-table-column label="采购小计" width="120" align="right" class-name="unit-price-col">
               <template #default="{ row }">
                 <span v-if="row.isSplitChild" class="muted">—</span>
+                <el-input
+                  v-else-if="canEditPurchasePrice && !row.item.cancelled"
+                  v-model="row.item.lineAmount"
+                  size="small"
+                  class="unit-price-input"
+                  :disabled="savingPrice"
+                  @change="onLineAmountChange(row.item)"
+                />
                 <span v-else :class="{ 'line-cancelled': row.item.cancelled }">
                   ¥{{ Number(row.item.lineAmount || 0).toFixed(2) }}
                 </span>
