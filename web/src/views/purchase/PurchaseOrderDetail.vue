@@ -56,23 +56,49 @@ function roundMoney(n: number) {
   return Math.round((n + Number.EPSILON) * 100) / 100
 }
 
-async function saveItemUnitPrice(row: PurchaseOrderItem & { id?: number }, unitPrice: number) {
+async function saveItemPurchasePrice(
+  row: PurchaseOrderItem & { id?: number },
+  opts: { unitPrice?: number; lineAmount?: number },
+) {
   if (!po.value || !row.id || row.cancelled || !canEditPurchasePrice.value) return
   if (isSplitChildItem(row)) {
     ElMessage.warning('拆分子行不参与采购计价')
     return
   }
-  if (Number.isNaN(unitPrice) || unitPrice < 0) {
-    ElMessage.warning('采购金额不能为负数')
+  const qty = Number(row.qty) || 0
+  if (qty <= 0) {
+    ElMessage.warning('数量无效')
     await loadData()
     return
   }
   savingPrice.value = true
   try {
-    const price = roundMoney(unitPrice)
-    row.unitPrice = price
-    row.lineAmount = roundMoney(price * (row.qty || 0))
-    po.value = await updatePurchaseOrderItemPrices(poId.value, [{ itemId: row.id, unitPrice: price }])
+    let unitPrice: number
+    let lineAmount: number | undefined
+    if (opts.lineAmount != null) {
+      lineAmount = roundMoney(opts.lineAmount)
+      if (Number.isNaN(lineAmount) || lineAmount < 0) {
+        ElMessage.warning('采购金额不能为负数')
+        await loadData()
+        return
+      }
+      unitPrice = roundMoney(lineAmount / qty)
+      row.lineAmount = lineAmount
+      row.unitPrice = unitPrice
+      po.value = await updatePurchaseOrderItemPrices(poId.value, [
+        { itemId: row.id, unitPrice, lineAmount },
+      ])
+    } else {
+      unitPrice = roundMoney(Number(opts.unitPrice))
+      if (Number.isNaN(unitPrice) || unitPrice < 0) {
+        ElMessage.warning('采购金额不能为负数')
+        await loadData()
+        return
+      }
+      row.unitPrice = unitPrice
+      row.lineAmount = roundMoney(unitPrice * qty)
+      po.value = await updatePurchaseOrderItemPrices(poId.value, [{ itemId: row.id, unitPrice }])
+    }
   } catch (e) {
     ElMessage.error((e as Error).message || '保存采购价失败')
     await loadData()
@@ -83,19 +109,12 @@ async function saveItemUnitPrice(row: PurchaseOrderItem & { id?: number }, unitP
 
 /** 改单价 → 按数量重算小计 */
 async function onUnitPriceChange(row: PurchaseOrderItem & { id?: number }) {
-  await saveItemUnitPrice(row, Number(row.unitPrice))
+  await saveItemPurchasePrice(row, { unitPrice: Number(row.unitPrice) })
 }
 
-/** 改小计 → 反推单价（单价 = 小计 / 数量） */
+/** 改小计 → 以小计为准反推单价（保留小计，避免 128/3 变成 128.01） */
 async function onLineAmountChange(row: PurchaseOrderItem & { id?: number }) {
-  const amount = Number(row.lineAmount)
-  const qty = Number(row.qty) || 0
-  if (qty <= 0) {
-    ElMessage.warning('数量无效，无法反算单价')
-    await loadData()
-    return
-  }
-  await saveItemUnitPrice(row, amount / qty)
+  await saveItemPurchasePrice(row, { lineAmount: Number(row.lineAmount) })
 }
 
 function isSplitChildItem(it?: PurchaseOrderItem | null) {

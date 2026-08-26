@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -223,8 +224,9 @@ func (s *PurchaseOrderService) Update(id uint64, in *dto.PurchaseOrderInput) (*d
 	return s.Get(id)
 }
 
-// UpdateItemPrices 更新明细采购单价并重算小计/采购总额。
+// UpdateItemPrices 更新明细采购单价/小计并重算采购总额。
 // 订单完成前均可改（含已付款/物流中）；已完成、已取消不可改。
+// 若传入 lineAmount，以小计为准反推单价，避免「备注 128、数量 3」被写成 128.01。
 func (s *PurchaseOrderService) UpdateItemPrices(id uint64, in *dto.UpdatePOItemPricesInput) (*dto.PurchaseOrderDetail, error) {
 	if in == nil || len(in.Items) == 0 {
 		return nil, ErrBadRequest
@@ -256,11 +258,26 @@ func (s *PurchaseOrderService) UpdateItemPrices(id uint64, in *dto.UpdatePOItemP
 		if IsSplitChildPOItem(*it) {
 			return nil, fmt.Errorf("拆分子行不参与采购计价，请修改父商品单价")
 		}
-		if row.UnitPrice < 0 {
-			return nil, ErrBadRequest
+		qty := it.Qty
+		if qty <= 0 {
+			qty = 1
 		}
-		it.UnitPrice = row.UnitPrice
-		it.LineAmount = float64(it.Qty) * row.UnitPrice
+		if row.LineAmount != nil {
+			line := *row.LineAmount
+			if line < 0 {
+				return nil, ErrBadRequest
+			}
+			line = math.Round(line*100) / 100
+			it.LineAmount = line
+			it.UnitPrice = math.Round((line/float64(qty))*100) / 100
+		} else {
+			if row.UnitPrice < 0 {
+				return nil, ErrBadRequest
+			}
+			unit := math.Round(row.UnitPrice*100) / 100
+			it.UnitPrice = unit
+			it.LineAmount = math.Round(float64(qty)*unit*100) / 100
+		}
 		if err := pr.SaveItem(it); err != nil {
 			return nil, err
 		}

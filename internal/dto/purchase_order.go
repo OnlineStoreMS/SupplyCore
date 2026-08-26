@@ -120,10 +120,12 @@ type DetachSalesOrderInput struct {
 	Reason   string `json:"reason"`
 }
 
-// UpdatePOItemPriceInput 更新采购明细单价（订单完成前均可改）。
+// UpdatePOItemPriceInput 更新采购明细单价/小计（订单完成前均可改）。
+// 若 LineAmount 有值，以小计为准并反推单价（避免 128/3→42.67→128.01 的分位误差）。
 type UpdatePOItemPriceInput struct {
-	ItemID    uint64  `json:"itemId" binding:"required"`
-	UnitPrice float64 `json:"unitPrice"`
+	ItemID     uint64   `json:"itemId" binding:"required"`
+	UnitPrice  float64  `json:"unitPrice"`
+	LineAmount *float64 `json:"lineAmount,omitempty"`
 }
 
 type UpdatePOItemPricesInput struct {

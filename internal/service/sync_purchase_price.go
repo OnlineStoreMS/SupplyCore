@@ -285,7 +285,12 @@ func allocateOrderPurchaseToItems(items []*model.PurchaseOrderItem, orderAmount 
 			lineAmt = 0
 		}
 		unit := roundMoney2(lineAmt / float64(q))
-		out = append(out, dto.UpdatePOItemPriceInput{ItemID: it.ID, UnitPrice: unit})
+		line := lineAmt
+		out = append(out, dto.UpdatePOItemPriceInput{
+			ItemID:     it.ID,
+			UnitPrice:  unit,
+			LineAmount: &line,
+		})
 	}
 	return out
 }

@@ -173,7 +173,7 @@ export async function deletePurchaseOrder(id: number) {
 
 export async function updatePurchaseOrderItemPrices(
   id: number,
-  items: { itemId: number; unitPrice: number }[],
+  items: { itemId: number; unitPrice: number; lineAmount?: number }[],
 ) {
   return unwrap<PurchaseOrder>(await client.put(`/purchase-orders/${id}/item-prices`, { items }))
 }
