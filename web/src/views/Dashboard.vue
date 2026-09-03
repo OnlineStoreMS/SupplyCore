@@ -576,7 +576,7 @@ function goSupplier(id: number) {
                 <div class="po-metric-label">{{ card.label }}</div>
                 <div class="po-metric-value">{{ card.value }}</div>
                 <div class="po-metric-sub">{{ card.sub }}</div>
-              </div>
+            </div>
             </el-col>
           </el-row>
           <el-table
@@ -607,9 +607,9 @@ function goSupplier(id: number) {
                 <div class="supplier-metric-top">
                   <span>{{ card.label }}</span>
                   <el-icon :style="{ color: card.color }"><component :is="card.icon" /></el-icon>
-                </div>
+            </div>
                 <div class="supplier-metric-value">{{ card.value }}</div>
-              </div>
+          </div>
             </el-col>
           </el-row>
         </el-card>

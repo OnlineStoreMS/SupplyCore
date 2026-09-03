@@ -248,7 +248,7 @@ async function handleDetachSales(r: { no: string; soId: number }) {
       poNo: po.value.poNo,
       orderNo: r.no,
       soId: r.soId || undefined,
-      reason: '供应链手工解绑',
+      reason: '手动解绑',
     })
     po.value = res.purchaseOrder
     if (po.value?.items) {

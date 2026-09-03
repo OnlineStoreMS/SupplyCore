@@ -767,7 +767,7 @@ func (s *PurchaseOrderService) DetachSalesOrder(in *dto.DetachSalesOrderInput) (
 		po.Remark = po.Remark + "；" + note
 	}
 
-	cancelWhole := activeLines == 0 && (po.Status == model.POStatusDraft || po.Status == model.POStatusOrdered)
+	cancelWhole := shouldCancelWholePO(po, activeLines, reason)
 	if cancelWhole {
 		po.Status = model.POStatusCancelled
 		po.RefSoID = 0
@@ -778,6 +778,29 @@ func (s *PurchaseOrderService) DetachSalesOrder(in *dto.DetachSalesOrderInput) (
 		return nil, err
 	}
 	return s.Get(po.ID)
+}
+
+func shouldCancelWholePO(po *model.PurchaseOrder, activeLines int, reason string) bool {
+	if activeLines > 0 || po.Status == model.POStatusCancelled || po.Status == model.POStatusCompleted {
+		return false
+	}
+	if po.Status == model.POStatusDraft || po.Status == model.POStatusOrdered {
+		return true
+	}
+	return isRefundCloseDetachReason(reason)
+}
+
+func isRefundCloseDetachReason(reason string) bool {
+	r := strings.TrimSpace(reason)
+	if r == "" {
+		return false
+	}
+	for _, k := range []string{"退款完成", "退款成功", "交易关闭", "订单关闭", "订单已关闭"} {
+		if strings.Contains(r, k) {
+			return true
+		}
+	}
+	return strings.Contains(r, "退款") && (strings.Contains(r, "关闭") || strings.Contains(r, "取消"))
 }
 
 func (s *PurchaseOrderService) transition(id uint64, from, to string, apply func(*model.PurchaseOrder)) (*dto.PurchaseOrderDetail, error) {
