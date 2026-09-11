@@ -697,13 +697,16 @@ async function changeStatus(row: Shipment, status: string) {
 
 async function handleDelete(row: Shipment) {
   try {
-    await ElMessageBox.confirm('确定删除此发货批次？', '确认')
+    const tip = isDropship.value
+      ? '确定删除此发货批次？将同步清除订单中心同运单号发货记录，便于重新传单号。'
+      : '确定删除此发货批次？'
+    await ElMessageBox.confirm(tip, '确认')
   } catch {
     return
   }
   try {
     await deleteShipment(props.poId, row.id)
-    ElMessage.success('已删除')
+    ElMessage.success(isDropship.value ? '已删除，并已回退订单中心发货' : '已删除')
     await loadData()
     emit('refresh')
   } catch (e) {

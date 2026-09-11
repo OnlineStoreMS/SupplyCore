@@ -162,14 +162,74 @@ func (s *POTrackingService) UpdateShipmentStatus(poID, shipmentID uint64, status
 	return &detail, nil
 }
 
-func (s *POTrackingService) DeleteShipment(poID, shipmentID uint64) error {
+// DeleteShipment 删除采购发货批次；代发单会同步回退订单中心同运单号发货记录（便于改单号重传，非追加）。
+func (s *POTrackingService) DeleteShipment(ctx context.Context, poID, shipmentID uint64, bearerToken string) error {
 	if _, err := s.ensurePOTrackable(poID); err != nil {
 		return err
 	}
-	if err := s.repos.Shipment.ForTenant(s.tenantID).Delete(poID, shipmentID); err != nil {
+	sr := s.repos.Shipment.ForTenant(s.tenantID)
+	sh, err := sr.GetByID(poID, shipmentID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	trackingNo := strings.TrimSpace(sh.TrackingNo)
+	if trackingNo != "" && s.oc != nil && strings.TrimSpace(bearerToken) != "" {
+		if err := s.unshipOrderCoreByShipment(ctx, poID, sh, bearerToken); err != nil {
+			return fmt.Errorf("回退订单中心发货失败：%w", err)
+		}
+	}
+	if err := sr.Delete(poID, shipmentID); err != nil {
 		return err
 	}
 	return s.syncShipmentStatus(poID)
+}
+
+func (s *POTrackingService) unshipOrderCoreByShipment(ctx context.Context, poID uint64, sh *model.PurchaseShipment, bearerToken string) error {
+	if sh == nil || s.oc == nil {
+		return nil
+	}
+	trackingNo := strings.TrimSpace(sh.TrackingNo)
+	if trackingNo == "" {
+		return nil
+	}
+	full, err := s.repos.PurchaseOrder.ForTenant(s.tenantID).GetWithItems(poID)
+	if err != nil {
+		return err
+	}
+	if full.FulfillmentType != model.POFulfillmentDropship {
+		return nil
+	}
+	itemByID := map[uint64]model.PurchaseOrderItem{}
+	for _, it := range full.Items {
+		itemByID[it.ID] = it
+	}
+	soIDs := map[uint64]struct{}{}
+	for _, line := range sh.Items {
+		if poItem, ok := itemByID[line.POItemID]; ok && poItem.RefSoID > 0 {
+			soIDs[poItem.RefSoID] = struct{}{}
+		}
+	}
+	if len(soIDs) == 0 && full.RefSoID > 0 {
+		soIDs[full.RefSoID] = struct{}{}
+	}
+	if len(soIDs) == 0 {
+		return nil
+	}
+	remark := fmt.Sprintf("供应链删除发货批次 %s，回退运单 %s", strings.TrimSpace(sh.ShipmentNo), trackingNo)
+	for soID := range soIDs {
+		if _, err := s.oc.UnshipOrder(ctx, bearerToken, soID, trackingNo, remark); err != nil {
+			msg := strings.ToLower(err.Error())
+			// 运单本就不存在：视为已回退
+			if strings.Contains(msg, "不存在") || strings.Contains(msg, "not found") || strings.Contains(msg, "记录不存在") {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
 }
 
 // SyncShipmentsFromOrders 从订单中心拉取快递单号/发货状态，写入代发采购单物流。

@@ -192,6 +192,26 @@ func (c *Client) ShipOrder(ctx context.Context, bearerToken string, orderID uint
 	return &out, nil
 }
 
+// UnshipOrder 按运单号回退订单中心发货（删除运单明细并重算待发货/部分发货）。
+func (c *Client) UnshipOrder(ctx context.Context, bearerToken string, orderID uint64, expressNo, remark string) (*OrderBrief, error) {
+	if orderID == 0 {
+		return nil, fmt.Errorf("order id required")
+	}
+	expressNo = strings.TrimSpace(expressNo)
+	if expressNo == "" {
+		return nil, fmt.Errorf("expressNo required")
+	}
+	body := map[string]any{
+		"expressNo": expressNo,
+		"remark":    strings.TrimSpace(remark),
+	}
+	var out OrderBrief
+	if err := c.postJSON(ctx, bearerToken, fmt.Sprintf("/api/v1/admin/orders/%d/unship", orderID), body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 type DecryptOrdersResult struct {
 	Items   []OrderBrief `json:"items"`
 	Success int          `json:"success"`

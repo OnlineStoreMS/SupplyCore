@@ -147,7 +147,7 @@ func (h *POTrackingHandler) DeleteShipment(c *gin.Context) {
 		response.Fail(c, http.StatusBadRequest, "invalid shipment id")
 		return
 	}
-	if err := h.ts(c).DeleteShipment(poID, shipmentID); err != nil {
+	if err := h.ts(c).DeleteShipment(c.Request.Context(), poID, shipmentID, authcontext.AuthorizationHeader(c)); err != nil {
 		httputil.HandleServiceError(c, err)
 		return
 	}
