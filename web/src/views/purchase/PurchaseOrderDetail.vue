@@ -192,29 +192,43 @@ function splitRefOrders(trace?: string) {
     .filter(Boolean)
 }
 
-/** 关联订单：优先从明细汇总（含已撤回），便于整单撤销后仍能看到历史关联 */
+/** 关联订单：优先从明细汇总（含已撤回/待人工解绑），便于整单撤销后仍能看到历史关联 */
+const PENDING_UNBIND_MARK = '待人工解绑'
+
+function itemPendingUnbind(it: { remark?: string; cancelled?: boolean }) {
+  return !!it?.cancelled && String(it?.remark || '').includes(PENDING_UNBIND_MARK)
+}
+
 const refOrders = computed(() => {
   const items = po.value?.items || []
-  const map = new Map<string, { cancelled: boolean; soId: number }>()
+  const map = new Map<string, { cancelled: boolean; pendingUnbind: boolean; soId: number }>()
   for (const it of items) {
     const no = (it.refOrderNo || '').trim()
     if (!no) continue
+    const pending = itemPendingUnbind(it)
     const prev = map.get(no)
     if (!prev) {
-      map.set(no, { cancelled: !!it.cancelled, soId: Number(it.refSoId || 0) })
+      map.set(no, { cancelled: !!it.cancelled, pendingUnbind: pending, soId: Number(it.refSoId || 0) })
     } else {
       // 任一明细未撤回，则该销售单视为仍关联
       prev.cancelled = prev.cancelled && !!it.cancelled
+      prev.pendingUnbind = prev.pendingUnbind || pending
       if (!prev.soId && it.refSoId) prev.soId = Number(it.refSoId)
     }
   }
   if (map.size > 0) {
-    return [...map.entries()].map(([no, v]) => ({ no, cancelled: v.cancelled, soId: v.soId }))
+    return [...map.entries()].map(([no, v]) => ({
+      no,
+      cancelled: v.cancelled,
+      pendingUnbind: v.pendingUnbind,
+      soId: v.soId,
+    }))
   }
   const allCancelled = po.value?.status === 'cancelled'
   return splitRefOrders(po.value?.refTraceId).map((no) => ({
     no,
     cancelled: allCancelled,
+    pendingUnbind: false,
     soId: 0,
   }))
 })
@@ -228,15 +242,23 @@ const canDetachSales = computed(
   () => po.value?.fulfillmentType === 'dropship' && po.value.status !== 'cancelled',
 )
 
-async function handleDetachSales(r: { no: string; soId: number }) {
+function canShowDetachBtn(r: { cancelled: boolean; pendingUnbind: boolean; no: string }) {
+  if (!canDetachSales.value || !r.no) return false
+  // 待人工解绑：虽已划线，仍展示解绑按钮供人工确认
+  return !r.cancelled || r.pendingUnbind
+}
+
+async function handleDetachSales(r: { no: string; soId: number; pendingUnbind?: boolean }) {
   if (!po.value || !canDetachSales.value || !r.no) return
   const paidLike =
     po.value.payStatus === 'paid' ||
     po.value.payStatus === 'partial' ||
     ['awaiting_ship', 'paid', 'partial_shipped', 'shipped', 'partial_received', 'completed'].includes(po.value.status)
-  const tip = paidLike
-    ? `确定从本代发单解绑销售单 ${r.no}？\n单据已付款/履约，仅划线解绑并回写订单中心为待分配，不冲销付款记录。`
-    : `确定从本代发单解绑销售单 ${r.no}？将同步清空订单中心分配。`
+  const tip = r.pendingUnbind
+    ? `销售单 ${r.no} 已退款/关闭，确认从本代发单解绑？\n解绑后将回写订单中心并清除采购单关联。`
+    : paidLike
+      ? `确定从本代发单解绑销售单 ${r.no}？\n单据已付款/履约，仅划线解绑并回写订单中心为待分配，不冲销付款记录。`
+      : `确定从本代发单解绑销售单 ${r.no}？将同步清空订单中心分配。`
   try {
     await ElMessageBox.confirm(tip, '解绑销售单', { type: 'warning' })
   } catch {
@@ -316,8 +338,15 @@ function lineSkuCode(row: { skuId: number; skuCode?: string }) {
 }
 
 function itemRowClass({ row }: { row: { item?: PurchaseOrderItem; cancelled?: boolean } }) {
-  const cancelled = row.item?.cancelled ?? row.cancelled
+  const item = row.item
+  if (item && itemPendingUnbind(item)) return 'po-item-pending-unbind'
+  const cancelled = item?.cancelled ?? row.cancelled
   return cancelled ? 'po-item-cancelled' : ''
+}
+
+function lineStrikeClass(item?: { remark?: string; cancelled?: boolean }) {
+  if (!item?.cancelled) return ''
+  return itemPendingUnbind(item) ? 'line-pending-unbind' : 'line-cancelled'
 }
 
 async function doAction(label: string, fn: () => Promise<unknown>) {
@@ -494,18 +523,22 @@ async function handleCopy() {
                     v-for="(r, idx) in refOrders"
                     :key="idx"
                     class="ref-order-line"
-                    :class="{ 'line-cancelled': r.cancelled }"
+                    :class="{
+                      'line-cancelled': r.cancelled && !r.pendingUnbind,
+                      'line-pending-unbind': r.pendingUnbind,
+                    }"
                   >
                     <span
                       class="ref-order-no"
-                      :class="{ linkable: !r.cancelled && (!!r.soId || !!po.refSoId) }"
-                      @click="!r.cancelled && (r.soId || po.refSoId) ? openOrderCore(r.soId || po.refSoId) : undefined"
+                      :class="{ linkable: (!r.cancelled || r.pendingUnbind) && (!!r.soId || !!po.refSoId) }"
+                      @click="(!r.cancelled || r.pendingUnbind) && (r.soId || po.refSoId) ? openOrderCore(r.soId || po.refSoId) : undefined"
                     >
                       {{ r.no }}
                     </span>
-                    <el-tag v-if="r.cancelled" type="info" size="small" class="cancel-tag">已撤回</el-tag>
+                    <el-tag v-if="r.pendingUnbind" type="danger" size="small" class="cancel-tag">待人工解绑</el-tag>
+                    <el-tag v-else-if="r.cancelled" type="info" size="small" class="cancel-tag">已撤回</el-tag>
                     <el-button
-                      v-else-if="canDetachSales"
+                      v-if="canShowDetachBtn(r)"
                       type="danger"
                       link
                       size="small"
@@ -556,18 +589,19 @@ async function handleCopy() {
                 <span v-else class="muted">—</span>
               </template>
             </el-table-column>
-            <el-table-column label="销售单" width="140" show-overflow-tooltip>
+            <el-table-column label="销售单" width="160" show-overflow-tooltip>
               <template #default="{ row }">
                 <span v-if="row.isSplitChild" class="muted">—</span>
                 <template v-else>
-                  <span :class="{ 'line-cancelled': row.item.cancelled }">{{ row.item.refOrderNo || '—' }}</span>
-                  <el-tag v-if="row.item.cancelled" type="info" size="small" class="cancel-tag">已撤回</el-tag>
+                  <span :class="lineStrikeClass(row.item)">{{ row.item.refOrderNo || '—' }}</span>
+                  <el-tag v-if="itemPendingUnbind(row.item)" type="danger" size="small" class="cancel-tag">待人工解绑</el-tag>
+                  <el-tag v-else-if="row.item.cancelled" type="info" size="small" class="cancel-tag">已撤回</el-tag>
                 </template>
               </template>
             </el-table-column>
             <el-table-column label="规格" min-width="260" show-overflow-tooltip>
               <template #default="{ row }">
-                <div class="spec-cell" :class="{ child: row.isSplitChild, 'line-cancelled': row.item.cancelled }">
+                <div class="spec-cell" :class="[{ child: row.isSplitChild }, lineStrikeClass(row.item)]">
                   <span v-if="row.isSplitChild" class="tree-prefix">└ </span>
                   <span>{{
                     row.isSplitChild
@@ -582,24 +616,24 @@ async function handleCopy() {
             <el-table-column label="商家编码" width="140">
               <template #default="{ row }">
                 <span v-if="row.isSplitChild" class="muted">—</span>
-                <span v-else :class="{ 'line-cancelled': row.item.cancelled }">{{ lineSkuCode(row.item) }}</span>
+                <span v-else :class="lineStrikeClass(row.item)">{{ lineSkuCode(row.item) }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="supplierSkuCode" label="对方货号" width="120">
               <template #default="{ row }">
                 <span v-if="row.isSplitChild" class="muted">—</span>
-                <span v-else :class="{ 'line-cancelled': row.item.cancelled }">{{ row.item.supplierSkuCode || '—' }}</span>
+                <span v-else :class="lineStrikeClass(row.item)">{{ row.item.supplierSkuCode || '—' }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="qty" label="数量" width="80" align="center">
               <template #default="{ row }">
-                <span :class="{ 'line-cancelled': row.item.cancelled }">{{ row.item.qty }}</span>
+                <span :class="lineStrikeClass(row.item)">{{ row.item.qty }}</span>
               </template>
             </el-table-column>
             <el-table-column label="实付金额" width="110" align="right">
               <template #default="{ row }">
                 <span v-if="row.isSplitChild" class="muted">—</span>
-                <span v-else-if="(row.item.saleAmount || 0) > 0" :class="{ 'line-cancelled': row.item.cancelled }">
+                <span v-else-if="(row.item.saleAmount || 0) > 0" :class="lineStrikeClass(row.item)">
                   ¥{{ Number(row.item.saleAmount).toFixed(2) }}
                 </span>
                 <span v-else class="muted">—</span>
@@ -616,7 +650,7 @@ async function handleCopy() {
                   :disabled="savingPrice"
                   @change="onUnitPriceChange(row.item)"
                 />
-                <span v-else :class="{ 'line-cancelled': row.item.cancelled }">¥{{ Number(row.item.unitPrice || 0).toFixed(2) }}</span>
+                <span v-else :class="lineStrikeClass(row.item)">¥{{ Number(row.item.unitPrice || 0).toFixed(2) }}</span>
               </template>
             </el-table-column>
             <el-table-column label="采购小计" width="120" align="right" class-name="unit-price-col">
@@ -630,7 +664,7 @@ async function handleCopy() {
                   :disabled="savingPrice"
                   @change="onLineAmountChange(row.item)"
                 />
-                <span v-else :class="{ 'line-cancelled': row.item.cancelled }">
+                <span v-else :class="lineStrikeClass(row.item)">
                   ¥{{ Number(row.item.lineAmount || 0).toFixed(2) }}
                 </span>
               </template>
@@ -703,6 +737,10 @@ async function handleCopy() {
   color: #a8abb2;
   text-decoration: line-through;
 }
+.line-pending-unbind {
+  color: #f56c6c;
+  text-decoration: line-through;
+}
 .cancel-tag {
   margin-left: 6px;
 }
@@ -721,6 +759,13 @@ async function handleCopy() {
 }
 :deep(.po-item-cancelled td) {
   background-color: #f5f7fa !important;
+}
+:deep(.po-item-pending-unbind) {
+  background-color: #fef0f0 !important;
+  color: #f56c6c;
+}
+:deep(.po-item-pending-unbind td) {
+  background-color: #fef0f0 !important;
 }
 .ref-orders {
   display: flex;

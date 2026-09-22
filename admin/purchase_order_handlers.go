@@ -299,7 +299,7 @@ func (h *PurchaseOrderHandler) DetachSalesOrder(c *gin.Context) {
 		return
 	}
 	unlinkWarning := ""
-	if h.oc != nil {
+	if h.oc != nil && !in.PendingManualUnbind {
 		auth := authcontext.AuthorizationHeader(c)
 		var orderIDs []uint64
 		var orderNos []string

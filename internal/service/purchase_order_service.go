@@ -645,7 +645,10 @@ func (s *PurchaseOrderService) Merge(in *dto.MergePurchaseOrdersInput) (*dto.Mer
 	}, nil
 }
 
+const pendingManualUnbindMark = "待人工解绑"
+
 // DetachSalesOrder 从代发单撤回某笔销售单：对应明细标为已撤回（保留划线痕迹），更新备注与关联单号。
+// PendingManualUnbind：发货前退款/关单仅划线提醒，保留单头关联与订单中心采购单号，等待人工解绑。
 // 已付款/部分发货也可解绑（不冲销付款）；若全部明细已撤回且仍为草稿/已下单，则整单取消。
 func (s *PurchaseOrderService) DetachSalesOrder(in *dto.DetachSalesOrderInput) (*dto.PurchaseOrderDetail, error) {
 	if in == nil {
@@ -667,27 +670,44 @@ func (s *PurchaseOrderService) DetachSalesOrder(in *dto.DetachSalesOrderInput) (
 	if po.FulfillmentType != model.POFulfillmentDropship {
 		return nil, ErrBadRequest
 	}
-	// 解绑销售单：草稿/已下单/已付款/部分发货均可（仅划线明细并去掉关联，不冲销付款）。
-	// 整单取消仍仅限草稿/已下单且全部明细已撤回。
 	reason := strings.TrimSpace(in.Reason)
 	if reason == "" {
 		reason = "销售单撤回分配"
 	}
 	nowLabel := time.Now().Format("2006-01-02 15:04")
+	pendingOnly := in.PendingManualUnbind
+	pendingRemark := pendingManualUnbindRemark(reason)
+
 	matched := 0
 	for i := range po.Items {
 		it := &po.Items[i]
-		if it.Cancelled {
+		hit := poItemMatchesSalesOrder(it, orderNo, in.SoID)
+		if !hit {
 			continue
 		}
-		hit := false
-		if orderNo != "" && (it.RefOrderNo == orderNo || strings.Contains(it.Remark, orderNo)) {
-			hit = true
+		if pendingOnly {
+			if itemHasPendingManualUnbind(it) {
+				matched++
+				continue
+			}
+			it.Cancelled = true
+			tag := pendingRemark
+			if orderNo != "" && !strings.Contains(tag, orderNo) {
+				tag = fmt.Sprintf("%s（%s）", pendingRemark, orderNo)
+			}
+			if strings.TrimSpace(it.Remark) == "" {
+				it.Remark = tag
+			} else if !strings.Contains(it.Remark, pendingManualUnbindMark) {
+				it.Remark = tag + " " + it.Remark
+			}
+			if err := pr.SaveItem(it); err != nil {
+				return nil, err
+			}
+			matched++
+			continue
 		}
-		if in.SoID > 0 && it.RefSoID == in.SoID {
-			hit = true
-		}
-		if !hit {
+		// 正式解绑：未撤回明细，或先前「待人工解绑」的划线明细均可收口
+		if it.Cancelled && !itemHasPendingManualUnbind(it) {
 			continue
 		}
 		it.Cancelled = true
@@ -695,10 +715,17 @@ func (s *PurchaseOrderService) DetachSalesOrder(in *dto.DetachSalesOrderInput) (
 		if orderNo != "" && !strings.Contains(tag, orderNo) {
 			tag = fmt.Sprintf("【已撤回 %s %s：%s】", orderNo, nowLabel, reason)
 		}
-		if strings.TrimSpace(it.Remark) == "" {
+		base := strings.TrimSpace(it.Remark)
+		if itemHasPendingManualUnbind(it) {
+			// 人工确认解绑后去掉待办提醒，保留正式撤回标记
+			base = stripPendingManualUnbindRemark(base)
+		}
+		if base == "" {
 			it.Remark = tag
-		} else if !strings.Contains(it.Remark, "【已撤回") {
-			it.Remark = tag + " " + it.Remark
+		} else if !strings.Contains(base, "【已撤回") {
+			it.Remark = tag + " " + base
+		} else {
+			it.Remark = base
 		}
 		if err := pr.SaveItem(it); err != nil {
 			return nil, err
@@ -710,31 +737,27 @@ func (s *PurchaseOrderService) DetachSalesOrder(in *dto.DetachSalesOrderInput) (
 		return s.Get(po.ID)
 	}
 
-	// 无 RefOrderNo 的历史明细：按「仍无法匹配」时，若 refTrace 含该单号也记入头备注
-	if matched == 0 && orderNo != "" && !strings.Contains(po.RefTraceID, orderNo) {
-		// 找不到明细也允许只更新头备注，避免卡住撤回
-	}
-
-	// 从关联单号中移除
-	if orderNo != "" {
-		parts := strings.Split(po.RefTraceID, ",")
-		kept := make([]string, 0, len(parts))
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p == "" || p == orderNo {
-				continue
+	if !pendingOnly {
+		// 从关联单号中移除
+		if orderNo != "" {
+			parts := strings.Split(po.RefTraceID, ",")
+			kept := make([]string, 0, len(parts))
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if p == "" || p == orderNo {
+					continue
+				}
+				kept = append(kept, p)
 			}
-			kept = append(kept, p)
+			po.RefTraceID = strings.Join(kept, ",")
 		}
-		po.RefTraceID = strings.Join(kept, ",")
-	}
-	if in.SoID > 0 && po.RefSoID == in.SoID {
-		po.RefSoID = 0
-		// 若还有其它未撤回明细带 RefSoID，取第一个
-		for _, it := range po.Items {
-			if !it.Cancelled && it.RefSoID > 0 {
-				po.RefSoID = it.RefSoID
-				break
+		if in.SoID > 0 && po.RefSoID == in.SoID {
+			po.RefSoID = 0
+			for _, it := range po.Items {
+				if !it.Cancelled && it.RefSoID > 0 {
+					po.RefSoID = it.RefSoID
+					break
+				}
 			}
 		}
 	}
@@ -756,28 +779,95 @@ func (s *PurchaseOrderService) DetachSalesOrder(in *dto.DetachSalesOrderInput) (
 	po.SaleAmount = saleActive
 	po.TotalAmount = totalActive
 
-	note := fmt.Sprintf("%s 撤回销售单 %s", nowLabel, orderNo)
-	if orderNo == "" {
-		note = fmt.Sprintf("%s 撤回销售单 #%d", nowLabel, in.SoID)
+	var note string
+	if pendingOnly {
+		note = fmt.Sprintf("%s %s", nowLabel, pendingRemark)
+		if orderNo != "" {
+			note = fmt.Sprintf("%s %s（%s）", nowLabel, pendingRemark, orderNo)
+		}
+	} else {
+		note = fmt.Sprintf("%s 撤回销售单 %s", nowLabel, orderNo)
+		if orderNo == "" {
+			note = fmt.Sprintf("%s 撤回销售单 #%d", nowLabel, in.SoID)
+		}
+		note = note + "（" + reason + "）"
 	}
-	note = note + "（" + reason + "）"
 	if strings.TrimSpace(po.Remark) == "" {
 		po.Remark = note
 	} else if !strings.Contains(po.Remark, note) {
 		po.Remark = po.Remark + "；" + note
 	}
 
-	cancelWhole := shouldCancelWholePO(po, activeLines, reason)
-	if cancelWhole {
-		po.Status = model.POStatusCancelled
-		po.RefSoID = 0
-		// RefTraceID 已在逐单 detach 中清空；兜底再清一次
-		po.RefTraceID = ""
+	if !pendingOnly {
+		cancelWhole := shouldCancelWholePO(po, activeLines, reason)
+		if cancelWhole {
+			po.Status = model.POStatusCancelled
+			po.RefSoID = 0
+			po.RefTraceID = ""
+		}
 	}
 	if err := pr.Save(po); err != nil {
 		return nil, err
 	}
 	return s.Get(po.ID)
+}
+
+func poItemMatchesSalesOrder(it *model.PurchaseOrderItem, orderNo string, soID uint64) bool {
+	if it == nil {
+		return false
+	}
+	if orderNo != "" && (it.RefOrderNo == orderNo || strings.Contains(it.Remark, orderNo)) {
+		return true
+	}
+	if soID > 0 && it.RefSoID == soID {
+		return true
+	}
+	return false
+}
+
+func itemHasPendingManualUnbind(it *model.PurchaseOrderItem) bool {
+	return it != nil && strings.Contains(it.Remark, pendingManualUnbindMark)
+}
+
+func pendingManualUnbindRemark(reason string) string {
+	r := strings.TrimSpace(reason)
+	if strings.Contains(r, "交易关闭") {
+		return "销售单 交易关闭。待人工解绑"
+	}
+	// 退款完成/退款成功/订单关闭等统一文案，便于运营识别
+	return "销售单 退款成功。待人工解绑"
+}
+
+func stripPendingManualUnbindRemark(remark string) string {
+	r := strings.TrimSpace(remark)
+	if r == "" || !strings.Contains(r, pendingManualUnbindMark) {
+		return r
+	}
+	for _, p := range []string{
+		"销售单 退款成功。待人工解绑",
+		"销售单 交易关闭。待人工解绑",
+		"销售单 已关闭。待人工解绑",
+	} {
+		r = strings.ReplaceAll(r, p, "")
+	}
+	// 去掉「待人工解绑（单号）」残留
+	for {
+		i := strings.Index(r, pendingManualUnbindMark)
+		if i < 0 {
+			break
+		}
+		end := i + len(pendingManualUnbindMark)
+		if end < len(r) {
+			rest := r[end:]
+			if strings.HasPrefix(rest, "（") {
+				if j := strings.Index(rest, "）"); j >= 0 {
+					end += j + len("）")
+				}
+			}
+		}
+		r = strings.TrimSpace(r[:i] + " " + strings.TrimSpace(r[end:]))
+	}
+	return strings.TrimSpace(strings.Join(strings.Fields(r), " "))
 }
 
 func shouldCancelWholePO(po *model.PurchaseOrder, activeLines int, reason string) bool {

@@ -118,6 +118,8 @@ type DetachSalesOrderInput struct {
 	OrderNo  string `json:"orderNo"`
 	SoID     uint64 `json:"soId"`
 	Reason   string `json:"reason"`
+	// PendingManualUnbind=true：发货前退款/关单仅划线提醒，保留关联与单头，不回写订单中心解绑。
+	PendingManualUnbind bool `json:"pendingManualUnbind"`
 }
 
 // UpdatePOItemPriceInput 更新采购明细单价/小计（订单完成前均可改）。
