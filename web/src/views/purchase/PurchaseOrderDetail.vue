@@ -192,20 +192,26 @@ function splitRefOrders(trace?: string) {
     .filter(Boolean)
 }
 
-/** 关联订单：优先从明细汇总（含已撤回/待人工解绑），便于整单撤销后仍能看到历史关联 */
-const PENDING_UNBIND_MARK = '待人工解绑'
-
-function itemPendingUnbind(it: { remark?: string; cancelled?: boolean }) {
-  return !!it?.cancelled && String(it?.remark || '').includes(PENDING_UNBIND_MARK)
+/** 关联订单：优先从明细汇总（含已撤回），便于整单撤销后仍能看到历史关联。
+ *  待人工解绑 = 明细已划线，但单头关联单号仍挂着（未点「解绑」收口）。 */
+function itemPendingUnbind(
+  it: { remark?: string; cancelled?: boolean; refOrderNo?: string },
+  refTraceId?: string,
+) {
+  if (!it?.cancelled) return false
+  const no = (it.refOrderNo || '').trim()
+  if (!no) return false
+  return splitRefOrders(refTraceId).includes(no)
 }
 
 const refOrders = computed(() => {
   const items = po.value?.items || []
+  const refTrace = po.value?.refTraceId || ''
   const map = new Map<string, { cancelled: boolean; pendingUnbind: boolean; soId: number }>()
   for (const it of items) {
     const no = (it.refOrderNo || '').trim()
     if (!no) continue
-    const pending = itemPendingUnbind(it)
+    const pending = itemPendingUnbind(it, refTrace)
     const prev = map.get(no)
     if (!prev) {
       map.set(no, { cancelled: !!it.cancelled, pendingUnbind: pending, soId: Number(it.refSoId || 0) })
@@ -339,14 +345,14 @@ function lineSkuCode(row: { skuId: number; skuCode?: string }) {
 
 function itemRowClass({ row }: { row: { item?: PurchaseOrderItem; cancelled?: boolean } }) {
   const item = row.item
-  if (item && itemPendingUnbind(item)) return 'po-item-pending-unbind'
+  if (item && itemPendingUnbind(item, po.value?.refTraceId)) return 'po-item-pending-unbind'
   const cancelled = item?.cancelled ?? row.cancelled
   return cancelled ? 'po-item-cancelled' : ''
 }
 
-function lineStrikeClass(item?: { remark?: string; cancelled?: boolean }) {
+function lineStrikeClass(item?: { remark?: string; cancelled?: boolean; refOrderNo?: string }) {
   if (!item?.cancelled) return ''
-  return itemPendingUnbind(item) ? 'line-pending-unbind' : 'line-cancelled'
+  return itemPendingUnbind(item, po.value?.refTraceId) ? 'line-pending-unbind' : 'line-cancelled'
 }
 
 async function doAction(label: string, fn: () => Promise<unknown>) {
@@ -594,7 +600,7 @@ async function handleCopy() {
                 <span v-if="row.isSplitChild" class="muted">—</span>
                 <template v-else>
                   <span :class="lineStrikeClass(row.item)">{{ row.item.refOrderNo || '—' }}</span>
-                  <el-tag v-if="itemPendingUnbind(row.item)" type="danger" size="small" class="cancel-tag">待人工解绑</el-tag>
+                  <el-tag v-if="itemPendingUnbind(row.item, po?.refTraceId)" type="danger" size="small" class="cancel-tag">待人工解绑</el-tag>
                   <el-tag v-else-if="row.item.cancelled" type="info" size="small" class="cancel-tag">已撤回</el-tag>
                 </template>
               </template>

@@ -1,7 +1,6 @@
 package service
 
 import (
-	"strings"
 	"testing"
 
 	"supplycore/internal/model"
@@ -25,22 +24,23 @@ func TestShouldCancelWholePO(t *testing.T) {
 	}
 }
 
-func TestPendingManualUnbindRemark(t *testing.T) {
-	if got := pendingManualUnbindRemark("退款完成"); got != "销售单 退款成功。待人工解绑" {
-		t.Fatalf("refund remark: %q", got)
+func TestIsRefundCloseDetachReason(t *testing.T) {
+	if !isRefundCloseDetachReason("退款完成") {
+		t.Fatal("expected refund reason")
 	}
-	if got := pendingManualUnbindRemark("交易关闭"); got != "销售单 交易关闭。待人工解绑" {
-		t.Fatalf("close remark: %q", got)
+	if isRefundCloseDetachReason("手动解绑") {
+		t.Fatal("manual reason should not match refund")
 	}
 }
 
-func TestStripPendingManualUnbindRemark(t *testing.T) {
-	in := "销售单 退款成功。待人工解绑（OC202609200031） OMS单号：OC202609200031"
-	got := stripPendingManualUnbindRemark(in)
-	if strings.Contains(got, "待人工解绑") {
-		t.Fatalf("still has pending mark: %q", got)
+func TestRefTraceContains(t *testing.T) {
+	if !refTraceContains("OC1,OC2", "OC2") {
+		t.Fatal("expected hit")
 	}
-	if !strings.Contains(got, "OMS单号") {
-		t.Fatalf("lost original remark: %q", got)
+	if refTraceContains("OC1,OC2", "OC3") {
+		t.Fatal("unexpected hit")
+	}
+	if !refTraceContains("OC1", "", "OC1") {
+		t.Fatal("fallback candidate")
 	}
 }
