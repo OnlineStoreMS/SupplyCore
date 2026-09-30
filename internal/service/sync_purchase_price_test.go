@@ -9,6 +9,7 @@ func TestParseRemarkPurchaseAmount(t *testing.T) {
 		ok   bool
 	}{
 		{"70", 70, true},
+		{"0", 0, true},
 		{"70.5", 70.5, true},
 		{"  63  ", 63, true},
 		{"70元", 70, true},

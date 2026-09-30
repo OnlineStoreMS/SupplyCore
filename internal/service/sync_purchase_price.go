@@ -113,10 +113,41 @@ func (s *PurchaseOrderService) SyncDropshipPurchasePricesFromOrders(
 		bySo := map[uint64][]*model.PurchaseOrderItem{}
 		for i := range po.Items {
 			it := &po.Items[i]
-			if it.Cancelled || it.RefSoID == 0 {
+			if it.Cancelled {
 				continue
 			}
-			bySo[it.RefSoID] = append(bySo[it.RefSoID], it)
+			soID := it.RefSoID
+			refNo := strings.TrimSpace(it.RefOrderNo)
+			if refNo != "" {
+				needResolve := soID == 0
+				if !needResolve {
+					order, ok := orderCache[soID]
+					if !ok {
+						order, err = oc.GetOrder(ctx, bearerToken, soID)
+						if err != nil {
+							log.Printf("[sync-purchase-price] get order %d: %v", soID, err)
+						} else if order != nil {
+							orderCache[soID] = order
+						}
+					}
+					if order != nil && strings.TrimSpace(order.OrderNo) != "" && strings.TrimSpace(order.OrderNo) != refNo {
+						needResolve = true
+					}
+				}
+				if needResolve {
+					if resolved := resolveOrderIDByNo(ctx, oc, bearerToken, orderCache, refNo); resolved > 0 && resolved != it.RefSoID {
+						it.RefSoID = resolved
+						if serr := pr.SaveItem(it); serr != nil {
+							log.Printf("[sync-purchase-price] fix ref_so_id item=%d: %v", it.ID, serr)
+						}
+						soID = resolved
+					}
+				}
+			}
+			if soID == 0 {
+				continue
+			}
+			bySo[soID] = append(bySo[soID], it)
 		}
 		if len(bySo) == 0 {
 			continue
@@ -207,7 +238,42 @@ func primaryExpressNo(o *ordercore.OrderBrief) string {
 	return ""
 }
 
-// resolveGroupPurchaseAmount 合单组内：有金额的备注若一致（或仅一侧填写），整包用该金额一次。
+// resolveOrderIDByNo 按销售单号解析 OrderCore 订单 ID（用于纠正过期的 ref_so_id）。
+func resolveOrderIDByNo(
+	ctx context.Context,
+	oc *ordercore.Client,
+	bearerToken string,
+	cache map[uint64]*ordercore.OrderBrief,
+	orderNo string,
+) uint64 {
+	orderNo = strings.TrimSpace(orderNo)
+	if orderNo == "" || oc == nil {
+		return 0
+	}
+	for id, o := range cache {
+		if o != nil && strings.TrimSpace(o.OrderNo) == orderNo {
+			return id
+		}
+	}
+	list, _, err := oc.SearchOrders(ctx, bearerToken, orderNo, 1, 20)
+	if err != nil {
+		log.Printf("[sync-purchase-price] search order %s: %v", orderNo, err)
+		return 0
+	}
+	for i := range list {
+		o := list[i]
+		if strings.TrimSpace(o.OrderNo) != orderNo {
+			continue
+		}
+		cp := o
+		cache[o.ID] = &cp
+		return o.ID
+	}
+	return 0
+}
+
+// resolveGroupPurchaseAmount 合单组内：多侧备注金额一致时，整包用该金额一次。
+// 仅一侧有备注时不整包合并（避免「一单 fenfa=0」把同运单其它行单价清零），改由调用方按单写入。
 func resolveGroupPurchaseAmount(group []soPurchaseMeta) (float64, bool) {
 	var amounts []float64
 	for _, m := range group {
@@ -219,6 +285,9 @@ func resolveGroupPurchaseAmount(group []soPurchaseMeta) (float64, bool) {
 	if len(amounts) == 0 {
 		return 0, false
 	}
+	if len(amounts) == 1 && len(group) > 1 {
+		return 0, false
+	}
 	first := amounts[0]
 	for _, a := range amounts[1:] {
 		if math.Abs(a-first) > 0.009 {
@@ -226,7 +295,6 @@ func resolveGroupPurchaseAmount(group []soPurchaseMeta) (float64, bool) {
 			return 0, false
 		}
 	}
-	// 仅当「合单」（多销售单）或单侧有金额时走整包一次；单销售单也适用
 	return first, true
 }
 
