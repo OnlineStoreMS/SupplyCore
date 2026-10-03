@@ -192,8 +192,13 @@ function splitRefOrders(trace?: string) {
     .filter(Boolean)
 }
 
-/** 关联订单：优先从明细汇总（含已撤回），便于整单撤销后仍能看到历史关联。
- *  待人工解绑 = 明细已划线，但单头关联单号仍挂着（未点「解绑」收口）。 */
+function itemRefundClosed(it?: { remark?: string; cancelled?: boolean }) {
+  if (!it?.cancelled) return false
+  const r = it.remark || ''
+  return r.includes('退款完成') || r.includes('交易关闭')
+}
+
+/** 待人工解绑 = 明细已划线，但单头关联单号仍挂着（未点「解绑」收口）。 */
 function itemPendingUnbind(
   it: { remark?: string; cancelled?: boolean; refOrderNo?: string },
   refTraceId?: string,
@@ -207,18 +212,20 @@ function itemPendingUnbind(
 const refOrders = computed(() => {
   const items = po.value?.items || []
   const refTrace = po.value?.refTraceId || ''
-  const map = new Map<string, { cancelled: boolean; pendingUnbind: boolean; soId: number }>()
+  const map = new Map<string, { cancelled: boolean; pendingUnbind: boolean; refundClosed: boolean; soId: number }>()
   for (const it of items) {
     const no = (it.refOrderNo || '').trim()
     if (!no) continue
     const pending = itemPendingUnbind(it, refTrace)
+    const refund = itemRefundClosed(it)
     const prev = map.get(no)
     if (!prev) {
-      map.set(no, { cancelled: !!it.cancelled, pendingUnbind: pending, soId: Number(it.refSoId || 0) })
+      map.set(no, { cancelled: !!it.cancelled, pendingUnbind: pending, refundClosed: refund, soId: Number(it.refSoId || 0) })
     } else {
       // 任一明细未撤回，则该销售单视为仍关联
       prev.cancelled = prev.cancelled && !!it.cancelled
       prev.pendingUnbind = prev.pendingUnbind || pending
+      prev.refundClosed = prev.refundClosed || refund
       if (!prev.soId && it.refSoId) prev.soId = Number(it.refSoId)
     }
   }
@@ -227,6 +234,7 @@ const refOrders = computed(() => {
       no,
       cancelled: v.cancelled,
       pendingUnbind: v.pendingUnbind,
+      refundClosed: v.refundClosed,
       soId: v.soId,
     }))
   }
@@ -235,6 +243,7 @@ const refOrders = computed(() => {
     no,
     cancelled: allCancelled,
     pendingUnbind: false,
+    refundClosed: false,
     soId: 0,
   }))
 })
@@ -345,14 +354,14 @@ function lineSkuCode(row: { skuId: number; skuCode?: string }) {
 
 function itemRowClass({ row }: { row: { item?: PurchaseOrderItem; cancelled?: boolean } }) {
   const item = row.item
-  if (item && itemPendingUnbind(item, po.value?.refTraceId)) return 'po-item-pending-unbind'
+  if (item && itemRefundClosed(item)) return 'po-item-pending-unbind'
   const cancelled = item?.cancelled ?? row.cancelled
   return cancelled ? 'po-item-cancelled' : ''
 }
 
 function lineStrikeClass(item?: { remark?: string; cancelled?: boolean; refOrderNo?: string }) {
   if (!item?.cancelled) return ''
-  return itemPendingUnbind(item, po.value?.refTraceId) ? 'line-pending-unbind' : 'line-cancelled'
+  return itemRefundClosed(item) ? 'line-pending-unbind' : 'line-cancelled'
 }
 
 async function doAction(label: string, fn: () => Promise<unknown>) {
@@ -530,18 +539,18 @@ async function handleCopy() {
                     :key="idx"
                     class="ref-order-line"
                     :class="{
-                      'line-cancelled': r.cancelled && !r.pendingUnbind,
-                      'line-pending-unbind': r.pendingUnbind,
+                      'line-cancelled': r.cancelled && !r.refundClosed,
+                      'line-pending-unbind': r.refundClosed,
                     }"
                   >
                     <span
                       class="ref-order-no"
-                      :class="{ linkable: (!r.cancelled || r.pendingUnbind) && (!!r.soId || !!po.refSoId) }"
-                      @click="(!r.cancelled || r.pendingUnbind) && (r.soId || po.refSoId) ? openOrderCore(r.soId || po.refSoId) : undefined"
+                      :class="{ linkable: (!r.cancelled || r.pendingUnbind || r.refundClosed) && (!!r.soId || !!po.refSoId) }"
+                      @click="(!r.cancelled || r.pendingUnbind || r.refundClosed) && (r.soId || po.refSoId) ? openOrderCore(r.soId || po.refSoId) : undefined"
                     >
                       {{ r.no }}
                     </span>
-                    <el-tag v-if="r.pendingUnbind" type="danger" size="small" class="cancel-tag">退款完成</el-tag>
+                    <el-tag v-if="r.refundClosed" type="danger" size="small" class="cancel-tag">退款完成</el-tag>
                     <el-tag v-else-if="r.cancelled" type="info" size="small" class="cancel-tag">已撤回</el-tag>
                     <el-button
                       v-if="canShowDetachBtn(r)"
@@ -600,7 +609,7 @@ async function handleCopy() {
                 <span v-if="row.isSplitChild" class="muted">—</span>
                 <template v-else>
                   <span :class="lineStrikeClass(row.item)">{{ row.item.refOrderNo || '—' }}</span>
-                  <el-tag v-if="itemPendingUnbind(row.item, po?.refTraceId)" type="danger" size="small" class="cancel-tag">退款完成</el-tag>
+                  <el-tag v-if="itemRefundClosed(row.item)" type="danger" size="small" class="cancel-tag">退款完成</el-tag>
                   <el-tag v-else-if="row.item.cancelled" type="info" size="small" class="cancel-tag">已撤回</el-tag>
                 </template>
               </template>

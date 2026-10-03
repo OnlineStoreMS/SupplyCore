@@ -113,9 +113,6 @@ func (s *PurchaseOrderService) SyncDropshipPurchasePricesFromOrders(
 		bySo := map[uint64][]*model.PurchaseOrderItem{}
 		for i := range po.Items {
 			it := &po.Items[i]
-			if it.Cancelled {
-				continue
-			}
 			soID := it.RefSoID
 			refNo := strings.TrimSpace(it.RefOrderNo)
 			if refNo != "" {

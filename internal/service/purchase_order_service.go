@@ -252,9 +252,6 @@ func (s *PurchaseOrderService) UpdateItemPrices(id uint64, in *dto.UpdatePOItemP
 		if !ok {
 			return nil, ErrNotFound
 		}
-		if it.Cancelled {
-			continue
-		}
 		if IsSplitChildPOItem(*it) {
 			return nil, fmt.Errorf("拆分子行不参与采购计价，请修改父商品单价")
 		}
