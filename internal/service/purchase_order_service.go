@@ -647,6 +647,15 @@ func (s *PurchaseOrderService) Merge(in *dto.MergePurchaseOrdersInput) (*dto.Mer
 	}, nil
 }
 
+// FindActiveDropshipPONoForSales 查找销售单仍挂着的其它代发活线 PO（排除 excludePoNo）。
+func (s *PurchaseOrderService) FindActiveDropshipPONoForSales(soID uint64, orderNo, excludePoNo string) string {
+	poNo, err := s.repos.PurchaseOrder.ForTenant(s.tenantID).FindActiveDropshipPoNoForSales(soID, orderNo, excludePoNo)
+	if err != nil {
+		return ""
+	}
+	return poNo
+}
+
 // DetachSalesOrder 从代发单撤回某笔销售单：对应明细标为已撤回（保留划线痕迹），更新备注与关联单号。
 // PendingManualUnbind：发货前退款/关单仅划线+备注说明，保留单头关联与订单中心采购单号，由人工点解绑收口。
 // 已付款/部分发货也可解绑（不冲销付款）；若全部明细已撤回且仍为草稿/已下单，则整单取消。

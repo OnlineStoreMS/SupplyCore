@@ -313,7 +313,13 @@ func (h *PurchaseOrderHandler) DetachSalesOrder(c *gin.Context) {
 		if remark == "" {
 			remark = "供应链解绑代发销售单"
 		}
-		if _, rerr := h.oc.UnlinkDropshipPO(c.Request.Context(), auth, orderIDs, orderNos, true, remark); rerr != nil {
+		// 销售单若还挂在其它代发单活线上：回写到那张 PO，勿清空订单中心采购单号
+		otherPo := h.ps(c).FindActiveDropshipPONoForSales(in.SoID, strings.TrimSpace(in.OrderNo), strings.TrimSpace(in.PoNo))
+		if otherPo != "" {
+			if _, rerr := h.oc.RelinkPurchaseOrder(c.Request.Context(), auth, []string{strings.TrimSpace(in.PoNo)}, otherPo); rerr != nil {
+				unlinkWarning = rerr.Error()
+			}
+		} else if _, rerr := h.oc.UnlinkDropshipPO(c.Request.Context(), auth, orderIDs, orderNos, true, remark); rerr != nil {
 			unlinkWarning = rerr.Error()
 		}
 	}

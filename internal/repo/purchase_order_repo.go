@@ -194,6 +194,36 @@ func (r *PurchaseOrderRepo) GetByID(id uint64) (*model.PurchaseOrder, error) {
 	return &po, nil
 }
 
+// FindActiveDropshipPoNoForSales 销售单仍挂着的其它代发活线（排除 excludePoNo）。
+func (r *PurchaseOrderRepo) FindActiveDropshipPoNoForSales(soID uint64, orderNo, excludePoNo string) (string, error) {
+	orderNo = strings.TrimSpace(orderNo)
+	excludePoNo = strings.TrimSpace(excludePoNo)
+	if soID == 0 && orderNo == "" {
+		return "", nil
+	}
+	q := r.db.Table("purchase_order_items AS i").
+		Select("p.po_no").
+		Joins("JOIN purchase_orders p ON p.id = i.po_id").
+		Where("i.tenant_id = ? AND p.tenant_id = ?", r.tenantID, r.tenantID).
+		Where("p.fulfillment_type = ?", model.POFulfillmentDropship).
+		Where("COALESCE(i.cancelled, false) = false").
+		Where("p.status <> ?", model.POStatusCancelled)
+	if excludePoNo != "" {
+		q = q.Where("p.po_no <> ?", excludePoNo)
+	}
+	switch {
+	case soID > 0 && orderNo != "":
+		q = q.Where("i.ref_so_id = ? OR i.ref_order_no = ?", soID, orderNo)
+	case soID > 0:
+		q = q.Where("i.ref_so_id = ?", soID)
+	default:
+		q = q.Where("i.ref_order_no = ?", orderNo)
+	}
+	var poNo string
+	err := q.Order("p.po_no DESC").Limit(1).Scan(&poNo).Error
+	return strings.TrimSpace(poNo), err
+}
+
 func (r *PurchaseOrderRepo) GetByPoNoWithItems(poNo string) (*model.PurchaseOrder, error) {
 	poNo = strings.TrimSpace(poNo)
 	if poNo == "" {
