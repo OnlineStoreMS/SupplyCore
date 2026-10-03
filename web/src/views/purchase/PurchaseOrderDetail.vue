@@ -541,7 +541,7 @@ async function handleCopy() {
                     >
                       {{ r.no }}
                     </span>
-                    <el-tag v-if="r.pendingUnbind" type="danger" size="small" class="cancel-tag">待人工解绑</el-tag>
+                    <el-tag v-if="r.pendingUnbind" type="danger" size="small" class="cancel-tag">退款完成</el-tag>
                     <el-tag v-else-if="r.cancelled" type="info" size="small" class="cancel-tag">已撤回</el-tag>
                     <el-button
                       v-if="canShowDetachBtn(r)"
@@ -600,7 +600,7 @@ async function handleCopy() {
                 <span v-if="row.isSplitChild" class="muted">—</span>
                 <template v-else>
                   <span :class="lineStrikeClass(row.item)">{{ row.item.refOrderNo || '—' }}</span>
-                  <el-tag v-if="itemPendingUnbind(row.item, po?.refTraceId)" type="danger" size="small" class="cancel-tag">待人工解绑</el-tag>
+                  <el-tag v-if="itemPendingUnbind(row.item, po?.refTraceId)" type="danger" size="small" class="cancel-tag">退款完成</el-tag>
                   <el-tag v-else-if="row.item.cancelled" type="info" size="small" class="cancel-tag">已撤回</el-tag>
                 </template>
               </template>

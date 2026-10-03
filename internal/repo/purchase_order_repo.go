@@ -110,7 +110,14 @@ func (r *PurchaseOrderRepo) List(f POListFilter) ([]model.PurchaseOrder, int64, 
 		q = q.Where("supplier_id = ?", f.SupplierID)
 	}
 	if f.RefSoID > 0 {
-		q = q.Where("ref_so_id = ?", f.RefSoID)
+		// 合单/批量代发时头表 ref_so_id 只记其中一单；按明细关联销售单也能命中
+		q = q.Where(`ref_so_id = ? OR EXISTS (
+			SELECT 1 FROM purchase_order_items i
+			WHERE i.po_id = purchase_orders.id
+			  AND i.tenant_id = purchase_orders.tenant_id
+			  AND i.ref_so_id = ?
+			  AND COALESCE(i.cancelled, false) = false
+		)`, f.RefSoID, f.RefSoID)
 	}
 	if f.RefTraceID != "" {
 		q = q.Where("ref_trace_id = ?", f.RefTraceID)
