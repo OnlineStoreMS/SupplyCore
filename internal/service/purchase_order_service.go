@@ -684,6 +684,9 @@ func (s *PurchaseOrderService) DetachSalesOrder(in *dto.DetachSalesOrderInput) (
 		if !hit {
 			continue
 		}
+		if len(in.OrderItemIDs) > 0 && !containsUint64(in.OrderItemIDs, it.RefOrderItemID) {
+			continue
+		}
 		if pendingOnly {
 			// 已划线且仍挂在单头关联 = 已提示过，幂等跳过
 			if it.Cancelled && refTraceContains(po.RefTraceID, strings.TrimSpace(it.RefOrderNo), orderNo) {
@@ -808,6 +811,18 @@ func (s *PurchaseOrderService) DetachSalesOrder(in *dto.DetachSalesOrderInput) (
 		return nil, err
 	}
 	return s.Get(po.ID)
+}
+
+func containsUint64(ids []uint64, id uint64) bool {
+	if id == 0 {
+		return false
+	}
+	for _, x := range ids {
+		if x == id {
+			return true
+		}
+	}
+	return false
 }
 
 func poItemMatchesSalesOrder(it *model.PurchaseOrderItem, orderNo string, soID uint64) bool {

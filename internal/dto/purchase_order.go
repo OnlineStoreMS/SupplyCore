@@ -118,6 +118,8 @@ type DetachSalesOrderInput struct {
 	OrderNo  string `json:"orderNo"`
 	SoID     uint64 `json:"soId"`
 	Reason   string `json:"reason"`
+	// OrderItemIDs 仅划这些订单中心明细（部分退款）；空=该销售单下全部代发明细
+	OrderItemIDs []uint64 `json:"orderItemIds,omitempty"`
 	// PendingManualUnbind=true：发货前退款/关单仅划线提醒，保留关联与单头，不回写订单中心解绑。
 	PendingManualUnbind bool `json:"pendingManualUnbind"`
 }
