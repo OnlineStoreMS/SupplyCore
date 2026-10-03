@@ -53,15 +53,21 @@ type OrderAddressBrief struct {
 	FullText string `json:"fullText"`
 }
 
+type OrderShipmentItemBrief struct {
+	OrderItemID uint64 `json:"orderItemId"`
+	Qty         int    `json:"qty"`
+}
+
 type OrderShipmentBrief struct {
-	ID              uint64  `json:"id"`
-	ShipmentNo      string  `json:"shipmentNo"`
-	ExpressCompany  string  `json:"expressCompany"`
-	ExpressNo       string  `json:"expressNo"`
-	CallbackStatus  string  `json:"callbackStatus"`
-	CallbackMessage string  `json:"callbackMessage"`
-	ShippedAt       *string `json:"shippedAt,omitempty"`
-	Remark          string  `json:"remark"`
+	ID              uint64                   `json:"id"`
+	ShipmentNo      string                   `json:"shipmentNo"`
+	ExpressCompany  string                   `json:"expressCompany"`
+	ExpressNo       string                   `json:"expressNo"`
+	CallbackStatus  string                   `json:"callbackStatus"`
+	CallbackMessage string                   `json:"callbackMessage"`
+	ShippedAt       *string                  `json:"shippedAt,omitempty"`
+	Remark          string                   `json:"remark"`
+	Items           []OrderShipmentItemBrief `json:"items,omitempty"`
 }
 
 type OrderBrief struct {

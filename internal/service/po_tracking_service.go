@@ -102,7 +102,7 @@ func (s *POTrackingService) CreateShipment(poID uint64, in *dto.ShipmentInput) (
 		POID: poID, ShipmentNo: no, Status: model.ShipmentStatusShipped,
 		CarrierCode: in.CarrierCode, CarrierName: in.CarrierName,
 		TrackingNo: in.TrackingNo, ShipFromAddressID: in.ShipFromAddressID,
-		ShippedAt: &now,
+		ShippedAt:    &now,
 		ReceiverName: in.ReceiverName, ReceiverPhone: in.ReceiverPhone,
 		ReceiverAddress: in.ReceiverAddress, Remark: in.Remark,
 	}
@@ -342,53 +342,30 @@ func (s *POTrackingService) SyncShipmentsFromOrders(ctx context.Context, poID ui
 			}
 		}
 
-		type logistics struct {
-			trackingNo string
-			carrier    string
-			shippedAt  *time.Time
-			remark     string
-		}
-		logs := make([]logistics, 0)
-		seenTrack := map[string]struct{}{}
-		for _, sh := range order.Shipments {
-			tn := strings.TrimSpace(sh.ExpressNo)
-			if tn == "" {
-				continue
+		poRefIDs := map[uint64]struct{}{}
+		for _, it := range g.items {
+			if it.RefOrderItemID > 0 {
+				poRefIDs[it.RefOrderItemID] = struct{}{}
 			}
-			if _, ok := seenTrack[tn]; ok {
-				continue
-			}
-			seenTrack[tn] = struct{}{}
-			var shippedAt *time.Time
-			if sh.ShippedAt != nil && strings.TrimSpace(*sh.ShippedAt) != "" {
-				if t := parseDateTime(*sh.ShippedAt); t != nil {
-					shippedAt = t
-				}
-			}
-			logs = append(logs, logistics{
-				trackingNo: tn,
-				carrier:    strings.TrimSpace(sh.ExpressCompany),
-				shippedAt:  shippedAt,
-				remark:     fmt.Sprintf("同步自订单 %s", order.OrderNo),
-			})
 		}
-		if len(logs) == 0 && order.ShipStatus == "shipped" {
-			logs = append(logs, logistics{
-				trackingNo: fmt.Sprintf("SYNC-%s", order.OrderNo),
-				carrier:    "订单中心已发货",
-				remark:     fmt.Sprintf("同步自订单 %s（无快递单号）", order.OrderNo),
-			})
-		}
+		logs := collectDropshipLogistics(order, poRefIDs)
 		if len(logs) == 0 {
 			out.Skipped++
 			continue
 		}
 
-		// 该销售单剩余可发数量：全部挂到第一条物流（代发通常一单一票）
+		// 该销售单剩余可发数量：全部挂到第一条代发物流
 		primary := logs[0]
 		remainInputs := s.remainShipmentInputs(poID, g.items)
 		if len(remainInputs) == 0 {
-			out.Skipped++
+			if n, ferr := s.repointDropshipTrackingIfSelf(poID, g.items, logs); ferr != nil {
+				out.Errors = append(out.Errors, fmt.Sprintf("%s: %v", order.OrderNo, ferr))
+				out.Skipped++
+			} else if n > 0 {
+				out.Updated += n
+			} else {
+				out.Skipped++
+			}
 			continue
 		}
 		items, berr := s.buildShipmentItems(poID, remainInputs)
@@ -518,6 +495,71 @@ func (s *POTrackingService) SyncShipmentsFromOrders(ctx context.Context, poID ui
 	return out, nil
 }
 
+// repointDropshipTrackingIfSelf 明细已挂物流但运单是自营票时，改挂到代发运单（混单首票误用中通）。
+func (s *POTrackingService) repointDropshipTrackingIfSelf(poID uint64, groupItems []model.PurchaseOrderItem, logs []ocLogistics) (int, error) {
+	if poID == 0 || len(groupItems) == 0 || len(logs) == 0 {
+		return 0, nil
+	}
+	primary := logs[0]
+	want := strings.TrimSpace(primary.trackingNo)
+	if want == "" {
+		return 0, nil
+	}
+	wanted := map[string]struct{}{}
+	for _, l := range logs {
+		if tn := strings.TrimSpace(l.trackingNo); tn != "" {
+			wanted[tn] = struct{}{}
+		}
+	}
+	itemIDs := map[uint64]struct{}{}
+	for _, it := range groupItems {
+		if it.ID > 0 {
+			itemIDs[it.ID] = struct{}{}
+		}
+	}
+	sr := s.repos.Shipment.ForTenant(s.tenantID)
+	all, err := sr.ListByPO(poID)
+	if err != nil {
+		return 0, err
+	}
+	updated := 0
+	for i := range all {
+		sh := &all[i]
+		covers := false
+		for _, it := range sh.Items {
+			if _, ok := itemIDs[it.POItemID]; ok {
+				covers = true
+				break
+			}
+		}
+		if !covers {
+			continue
+		}
+		cur := strings.TrimSpace(sh.TrackingNo)
+		if _, ok := wanted[cur]; ok {
+			continue
+		}
+		if ex, ferr := sr.FindByTrackingNo(poID, want); ferr == nil && ex != nil && ex.ID != sh.ID {
+			continue
+		}
+		sh.TrackingNo = want
+		if c := strings.TrimSpace(primary.carrier); c != "" {
+			sh.CarrierName = c
+		}
+		if r := strings.TrimSpace(primary.remark); r != "" {
+			sh.Remark = r
+		}
+		if primary.shippedAt != nil {
+			sh.ShippedAt = primary.shippedAt
+		}
+		if err := sr.Save(sh); err != nil {
+			return updated, err
+		}
+		updated++
+	}
+	return updated, nil
+}
+
 func coalesceOrderNo(orderNo string, soID uint64) string {
 	if strings.TrimSpace(orderNo) != "" {
 		return orderNo
@@ -585,7 +627,7 @@ func (s *POTrackingService) CreatePayment(poID uint64, in *dto.PaymentInput) (*d
 		PayMethod: in.PayMethod, PayAccount: in.PayAccount,
 		PayeeAccount: in.PayeeAccount, PayeeName: in.PayeeName,
 		PayStatus: defaultPayRecordStatus(in.PayStatus),
-		Remark: in.Remark,
+		Remark:    in.Remark,
 	}
 	if in.PaidAt != "" {
 		if t := parseDateTime(in.PaidAt); t != nil {
@@ -853,7 +895,7 @@ func (s *POTrackingService) toShipmentDetail(sh *model.PurchaseShipment) dto.Shi
 		ReceiverName: sh.ReceiverName, ReceiverPhone: sh.ReceiverPhone,
 		ReceiverAddress: sh.ReceiverAddress, Remark: sh.Remark,
 		CreatedAt: formatTime(sh.CreatedAt),
-		Items: make([]dto.ShipmentItemDetail, 0, len(sh.Items)),
+		Items:     make([]dto.ShipmentItemDetail, 0, len(sh.Items)),
 	}
 	if sh.ShippedAt != nil {
 		d.ShippedAt = formatTimePtr(sh.ShippedAt)
