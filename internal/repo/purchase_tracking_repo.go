@@ -1,7 +1,6 @@
 package repo
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -131,25 +130,7 @@ func (r *ShipmentRepo) RemapItemPOItemIDs(oldToNew map[uint64]uint64) error {
 }
 
 func (r *ShipmentRepo) NextShipmentNo() (string, error) {
-	// 取当日最大单号 +1；COUNT+1 在删单留洞时会撞唯一索引 idx_shipment_tenant_no
-	prefix := "SH" + time.Now().Format("20060102")
-	var last string
-	if err := r.db.Model(&model.PurchaseShipment{}).
-		Scopes(scopeTenant(r.tenantID)).
-		Where("shipment_no LIKE ?", prefix+"%").
-		Order("shipment_no DESC").
-		Limit(1).
-		Pluck("shipment_no", &last).Error; err != nil {
-		return "", err
-	}
-	seq := 1
-	if last != "" && len(last) > len(prefix) {
-		var n int
-		if _, scanErr := fmt.Sscanf(last[len(prefix):], "%d", &n); scanErr == nil && n >= 0 {
-			seq = n + 1
-		}
-	}
-	return fmt.Sprintf("%s%04d", prefix, seq), nil
+	return nextDailyDocNo(r.db, &model.PurchaseShipment{}, "shipment_no", dailyPrefix("SH"))
 }
 
 type PaymentRepo struct {

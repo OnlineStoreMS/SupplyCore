@@ -41,19 +41,26 @@ func (h *PurchaseOrderHandler) List(c *gin.Context) {
 	}
 	awaitingLogistics := c.Query("awaitingLogistics") == "1" ||
 		strings.EqualFold(c.Query("awaitingLogistics"), "true")
-	list, total, err := h.ps(c).List(repo.POListFilter{
+	kw := strings.TrimSpace(c.Query("keyword"))
+	filter := repo.POListFilter{
 		Status: status, Statuses: splitCSV(c.Query("statuses")),
 		PayStatuses: splitCSV(c.Query("payStatus")), ExcludeStatuses: splitCSV(c.Query("excludeStatuses")),
 		AwaitingLogistics: awaitingLogistics,
 		FulfillmentType:   c.Query("fulfillmentType"),
 		SupplierID:        supplierID, RefSoID: refSoID, RefTraceID: c.Query("refTraceId"),
-		Keyword: c.Query("keyword"), SortBy: c.Query("sortBy"), SortOrder: c.Query("sortOrder"),
+		SortBy: c.Query("sortBy"), SortOrder: c.Query("sortOrder"),
 		CreatedAtStart: parsePOCreatedAtStart(c.Query("createdAtStart")),
 		CreatedAtEnd:   parsePOCreatedAtEndExclusive(c.Query("createdAtEnd")),
 		OrderedAtStart: parsePOCreatedAtStart(c.Query("orderedAtStart")),
 		OrderedAtEnd:   parsePOCreatedAtEndExclusive(c.Query("orderedAtEnd")),
 		Page: page, PageSize: pageSize,
-	})
+	}
+	if repo.LooksLikeFullPONo(kw) {
+		filter.ExactPoNo = strings.ToUpper(kw)
+	} else {
+		filter.Keyword = kw
+	}
+	list, total, err := h.ps(c).List(filter)
 	if err != nil {
 		response.Fail(c, http.StatusInternalServerError, err.Error())
 		return

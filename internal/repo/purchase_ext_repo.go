@@ -1,9 +1,6 @@
 package repo
 
 import (
-	"fmt"
-	"time"
-
 	"supplycore/internal/model"
 
 	"gorm.io/gorm"
@@ -94,15 +91,7 @@ func (r *PurchaseInboundRepo) GetWithItems(id uint64) (*model.PurchaseInbound, e
 }
 
 func (r *PurchaseInboundRepo) NextNo() (string, error) {
-	var count int64
-	day := time.Now().Format("20060102")
-	prefix := "IN" + day
-	if err := r.db.Model(&model.PurchaseInbound{}).
-		Where("tenant_id = ? AND inbound_no LIKE ?", r.tenantID, prefix+"%").
-		Count(&count).Error; err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%s%04d", prefix, count+1), nil
+	return nextDailyDocNo(r.db, &model.PurchaseInbound{}, "inbound_no", dailyPrefix("IN"))
 }
 
 func (r *PurchaseInboundRepo) Create(m *model.PurchaseInbound, items []model.PurchaseInboundItem) error {
@@ -207,15 +196,7 @@ func (r *PurchaseReturnRepo) GetWithItems(id uint64) (*model.PurchaseReturn, err
 }
 
 func (r *PurchaseReturnRepo) NextNo() (string, error) {
-	var count int64
-	day := time.Now().Format("20060102")
-	prefix := "PR" + day
-	if err := r.db.Model(&model.PurchaseReturn{}).
-		Where("tenant_id = ? AND return_no LIKE ?", r.tenantID, prefix+"%").
-		Count(&count).Error; err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%s%04d", prefix, count+1), nil
+	return nextDailyDocNo(r.db, &model.PurchaseReturn{}, "return_no", dailyPrefix("PR"))
 }
 
 func (r *PurchaseReturnRepo) Create(m *model.PurchaseReturn, items []model.PurchaseReturnItem) error {

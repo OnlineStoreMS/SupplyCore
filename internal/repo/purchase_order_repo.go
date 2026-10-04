@@ -35,6 +35,7 @@ type POListFilter struct {
 	RefSoID           uint64
 	RefTraceID        string
 	Keyword           string
+	ExactPoNo         string // 完整单号精确匹配（跨租户同号时禁止 ILIKE 误中）
 	CreatedAtStart    *time.Time
 	CreatedAtEnd      *time.Time // 含当日：传次日 00:00 时用 < End
 	OrderedAtStart    *time.Time
@@ -122,7 +123,9 @@ func (r *PurchaseOrderRepo) List(f POListFilter) ([]model.PurchaseOrder, int64, 
 	if f.RefTraceID != "" {
 		q = q.Where("ref_trace_id = ?", f.RefTraceID)
 	}
-	if f.Keyword != "" {
+	if f.ExactPoNo != "" {
+		q = q.Where("po_no = ?", strings.TrimSpace(f.ExactPoNo))
+	} else if f.Keyword != "" {
 		like := "%" + f.Keyword + "%"
 		q = q.Where("po_no ILIKE ?", like)
 	}
@@ -255,6 +258,20 @@ func (r *PurchaseOrderRepo) GetWithItems(id uint64) (*model.PurchaseOrder, error
 
 func (r *PurchaseOrderRepo) Create(po *model.PurchaseOrder, items []model.PurchaseOrderItem) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		_ = tx.Exec("SELECT pg_advisory_xact_lock(84261001)").Error
+		if strings.TrimSpace(po.PoNo) != "" {
+			var n int64
+			if err := tx.Model(&model.PurchaseOrder{}).Where("po_no = ?", po.PoNo).Count(&n).Error; err != nil {
+				return err
+			}
+			if n > 0 {
+				no, err := nextDailyDocNo(tx, &model.PurchaseOrder{}, "po_no", dailyPrefix("PO"))
+				if err != nil {
+					return err
+				}
+				po.PoNo = no
+			}
+		}
 		po.TenantID = r.tenantID
 		if err := tx.Create(po).Error; err != nil {
 			return err
@@ -502,23 +519,19 @@ func (r *PurchaseOrderRepo) ItemSpecsByPOIDs(poIDs []uint64) (map[uint64][]strin
 }
 
 func (r *PurchaseOrderRepo) NextPoNo() (string, error) {
-	prefix := "PO" + time.Now().Format("20060102")
-	var last string
-	err := r.db.Model(&model.PurchaseOrder{}).
-		Scopes(scopeTenant(r.tenantID)).
-		Where("po_no LIKE ?", prefix+"%").
-		Order("po_no DESC").
-		Limit(1).
-		Pluck("po_no", &last).Error
-	if err != nil {
-		return "", err
-	}
-	seq := 1
-	if last != "" && len(last) > len(prefix) {
-		var n int
-		if _, scanErr := fmt.Sscanf(last[len(prefix):], "%d", &n); scanErr == nil && n >= 0 {
-			seq = n + 1
+	prefix := dailyPrefix("PO")
+	for attempt := 0; attempt < 20; attempt++ {
+		no, err := nextDailyDocNo(r.db, &model.PurchaseOrder{}, "po_no", prefix)
+		if err != nil {
+			return "", err
+		}
+		var n int64
+		if err := r.db.Model(&model.PurchaseOrder{}).Where("po_no = ?", no).Count(&n).Error; err != nil {
+			return "", err
+		}
+		if n == 0 {
+			return no, nil
 		}
 	}
-	return fmt.Sprintf("%s%04d", prefix, seq), nil
+	return "", fmt.Errorf("代发单号冲突")
 }
