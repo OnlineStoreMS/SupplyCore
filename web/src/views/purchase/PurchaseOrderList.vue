@@ -23,6 +23,7 @@ import {
   buildMultiOrderCopyText,
   buildTrackingBySoId,
   canDecryptOrder,
+  collectActiveRefSoIds,
   isMaskedReceiver,
 } from '../../utils/orderCopy'
 import { dateShortcuts, dateRangeDefaultTime, last7DaysDateTimeRange, todayDateTimeRange } from '../../utils/date'
@@ -372,11 +373,11 @@ function collectRefSoIds(po: PurchaseOrder): number[] {
   return [...ids]
 }
 
-async function loadLinkedOrders(row: PurchaseOrderListItem): Promise<OrderBrief[]> {
+async function loadLinkedOrders(row: PurchaseOrderListItem, activeOnly = false): Promise<OrderBrief[]> {
   const po = await fetchPurchaseOrder(row.id)
-  const ids = collectRefSoIds(po)
+  const ids = activeOnly ? collectActiveRefSoIds(po) : collectRefSoIds(po)
   if (!ids.length) {
-    throw new Error('该代发单未关联销售订单')
+    throw new Error(activeOnly ? '没有可复制的有效销售单（已撤回不算）' : '该代发单未关联销售订单')
   }
   const orders: OrderBrief[] = []
   for (const id of ids) {
@@ -410,7 +411,7 @@ async function handleCopy(row: PurchaseOrderListItem) {
   if (row.fulfillmentType !== 'dropship') return
   copyRow[row.id] = true
   try {
-    let orders = await loadLinkedOrders(row)
+    let orders = await loadLinkedOrders(row, true)
     const needDecrypt = orders.filter((o) => canDecryptOrder(o) && isMaskedReceiver(o))
     if (needDecrypt.length) {
       const data = await decryptOrders(needDecrypt.map((o) => o.id))
@@ -420,7 +421,10 @@ async function handleCopy(row: PurchaseOrderListItem) {
     let trackingBySoId: Record<number, string> = {}
     try {
       const [detail, ships] = await Promise.all([fetchPurchaseOrder(row.id), fetchShipments(row.id)])
-      trackingBySoId = buildTrackingBySoId(detail.items || [], ships)
+      trackingBySoId = buildTrackingBySoId(
+        (detail.items || []).filter((it) => !it.cancelled),
+        ships,
+      )
     } catch {
       /* 无物流时仍可复制 */
     }

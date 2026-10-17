@@ -25,6 +25,7 @@ import {
   buildMultiOrderCopyText,
   buildTrackingBySoId,
   canDecryptOrder,
+  collectActiveRefSoIds,
   isMaskedReceiver,
 } from '../../utils/orderCopy'
 import PoShipmentTab from './PoShipmentTab.vue'
@@ -407,10 +408,10 @@ function collectRefSoIds(order: PurchaseOrder): number[] {
   return [...ids]
 }
 
-async function loadLinkedOrders(): Promise<OrderBrief[]> {
+async function loadLinkedOrders(activeOnly = false): Promise<OrderBrief[]> {
   if (!po.value) throw new Error('采购单未加载')
-  const ids = collectRefSoIds(po.value)
-  if (!ids.length) throw new Error('该代发单未关联销售订单')
+  const ids = activeOnly ? collectActiveRefSoIds(po.value) : collectRefSoIds(po.value)
+  if (!ids.length) throw new Error(activeOnly ? '没有可复制的有效销售单（已撤回不算）' : '该代发单未关联销售订单')
   const orders: OrderBrief[] = []
   for (const id of ids) {
     orders.push(await fetchOrder(id))
@@ -443,7 +444,7 @@ async function handleCopy() {
   if (po.value?.fulfillmentType !== 'dropship') return
   copying.value = true
   try {
-    let orders = await loadLinkedOrders()
+    let orders = await loadLinkedOrders(true)
     const needDecrypt = orders.filter((o) => canDecryptOrder(o) && isMaskedReceiver(o))
     if (needDecrypt.length) {
       const data = await decryptOrders(needDecrypt.map((o) => o.id))
@@ -453,7 +454,10 @@ async function handleCopy() {
     let trackingBySoId: Record<number, string> = {}
     try {
       const ships = shipments.value.length ? shipments.value : await fetchShipments(poId.value)
-      trackingBySoId = buildTrackingBySoId(po.value?.items || [], ships)
+      trackingBySoId = buildTrackingBySoId(
+        (po.value?.items || []).filter((it) => !it.cancelled),
+        ships,
+      )
     } catch {
       /* 无物流时仍可复制地址规格 */
     }

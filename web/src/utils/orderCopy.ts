@@ -128,3 +128,25 @@ export function buildTrackingBySoId(
 export function canDecryptOrder(order: Pick<OrderBrief, 'sourceChannel' | 'platformSysTid'>) {
   return order.sourceChannel === 'kdzs' && !!order.platformSysTid?.trim()
 }
+
+/** 复制用：只收未撤回明细关联的销售单（整单已撤回的不算） */
+export function collectActiveRefSoIds(po: {
+  refSoId?: number
+  items?: Array<{ refSoId?: number; cancelled?: boolean }>
+}): number[] {
+  const items = po.items || []
+  const ids: number[] = []
+  const seen = new Set<number>()
+  if (items.length) {
+    for (const it of items) {
+      if (it.cancelled) continue
+      const id = Number(it.refSoId || 0)
+      if (id <= 0 || seen.has(id)) continue
+      seen.add(id)
+      ids.push(id)
+    }
+    return ids
+  }
+  if (po.refSoId && po.refSoId > 0) return [po.refSoId]
+  return []
+}
