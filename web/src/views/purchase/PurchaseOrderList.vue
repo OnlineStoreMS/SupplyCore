@@ -17,9 +17,11 @@ import {
 } from '../../api/purchase'
 import { fetchSuppliers, type Supplier } from '../../api/supplier'
 import { decryptOrders, fetchOrder, type OrderBrief } from '../../api/order'
+import { fetchShipments } from '../../api/poTracking'
 import { copyToClipboard } from '../../utils/clipboard'
 import {
   buildMultiOrderCopyText,
+  buildTrackingBySoId,
   canDecryptOrder,
   isMaskedReceiver,
 } from '../../utils/orderCopy'
@@ -415,7 +417,14 @@ async function handleCopy(row: PurchaseOrderListItem) {
       const byId = new Map((data.items || []).map((o) => [o.id, o]))
       orders = orders.map((o) => byId.get(o.id) || o)
     }
-    const text = buildMultiOrderCopyText(orders)
+    let trackingBySoId: Record<number, string> = {}
+    try {
+      const [detail, ships] = await Promise.all([fetchPurchaseOrder(row.id), fetchShipments(row.id)])
+      trackingBySoId = buildTrackingBySoId(detail.items || [], ships)
+    } catch {
+      /* 无物流时仍可复制 */
+    }
+    const text = buildMultiOrderCopyText(orders, new Date(), trackingBySoId)
     if (!text.trim()) {
       ElMessage.warning('暂无收件信息可复制')
       return

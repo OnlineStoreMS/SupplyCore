@@ -4,23 +4,31 @@ function pad(n: number) {
   return String(n).padStart(2, '0')
 }
 
-/** 订单解密复制用：2026 07/11 12:42（与订单中心一致） */
+/** 订单解密复制用：2026 07/11 12:42 */
 export function formatOrderCopyDateTime(d: Date): string {
   return `${d.getFullYear()} ${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-export function formatAddress(addr?: OrderAddressBrief | null) {
-  if (!addr) return '-'
+/** 供应商订单复制地址：姓名,电话,省 市 区 详细地址 */
+export function formatSupplierCopyAddress(addr?: OrderAddressBrief | null) {
+  if (!addr) return ''
   if (addr.fullText?.trim()) return addr.fullText.trim()
-  const parts = [addr.name, addr.phone, addr.province, addr.city, addr.district, addr.address].filter(
-    (s) => s?.trim(),
-  )
-  return parts.join(' ') || '-'
+  const name = (addr.name || '').trim()
+  const phone = (addr.phone || '').trim()
+  const region = [addr.province, addr.city, addr.district].filter((s) => s?.trim()).join(' ')
+  const detail = (addr.address || '').trim()
+  const loc = [region, detail].filter(Boolean).join(region && detail ? ' ' : '')
+  return [name, phone, loc].filter(Boolean).join(',')
+}
+
+/** @deprecated 兼容旧调用；供应商复制请用 formatSupplierCopyAddress */
+export function formatAddress(addr?: OrderAddressBrief | null) {
+  return formatSupplierCopyAddress(addr) || '-'
 }
 
 /** 是否仍为脱敏地址（含 *） */
 export function isMaskedReceiver(order: Pick<OrderBrief, 'buyerName' | 'buyerPhone' | 'address'>) {
-  const text = [order.buyerName, order.buyerPhone, formatAddress(order.address)].join(' ')
+  const text = [order.buyerName, order.buyerPhone, formatSupplierCopyAddress(order.address)].join(' ')
   return /[*＊]/.test(text)
 }
 
@@ -33,37 +41,88 @@ export function formatOrderCopyGoodsLines(items?: OrderItemBrief[]) {
       return `${spec} x${num}`
     })
     .filter(Boolean)
-    .join('\n')
 }
 
-/** 与订单中心一致：时间 + 空行 + 收件信息 + --- + 规格行 */
-export function buildOrderCopyText(order: OrderBrief, now = new Date()) {
-  const body = buildOrderCopyBody(order)
-  if (!body) return ''
-  return [formatOrderCopyDateTime(now), '', body].join('\n')
-}
-
-/** 单笔内容（不含顶部时间）：收件信息 + --- + 规格行 */
-export function buildOrderCopyBody(order: OrderBrief) {
-  const address = formatAddress(order.address)
-  const goodsBlock = formatOrderCopyGoodsLines(order.items)
-  const lines = [address === '-' ? '' : address, '---']
-  if (goodsBlock) lines.push(goodsBlock)
-  return lines.join('\n')
+function resolveTrackingNo(order: OrderBrief, trackingBySoId?: Record<number, string>) {
+  const mapped = (trackingBySoId?.[order.id] || '').trim()
+  if (mapped) return mapped
+  for (const s of order.shipments || []) {
+    const no = (s.expressNo || '').trim()
+    if (no) return no
+  }
+  return ''
 }
 
 /**
- * 多销售单复制：顶部一个时间，各单用【1】【2】标注。
- * 单条时不带序号，与订单中心单笔格式一致。
+ * 单笔块：规格 x数量[       ---已打快递单 单号]
+ * 收件人,电话,地址
  */
-export function buildMultiOrderCopyText(orders: OrderBrief[], now = new Date()) {
-  const bodies = orders.map((o) => buildOrderCopyBody(o)).filter((t) => t.trim())
-  if (!bodies.length) return ''
-  if (bodies.length === 1) {
-    return [formatOrderCopyDateTime(now), '', bodies[0]].join('\n')
+export function buildSupplierCopyBlock(
+  order: OrderBrief,
+  opts?: { index?: number; trackingBySoId?: Record<number, string> },
+) {
+  const goods = formatOrderCopyGoodsLines(order.items)
+  const address = formatSupplierCopyAddress(order.address)
+  const tracking = resolveTrackingNo(order, opts?.trackingBySoId)
+  if (!goods.length && !address) return ''
+
+  const prefix = opts?.index != null ? `【${opts.index}】` : ''
+  if (goods.length) {
+    const lines = [...goods]
+    if (tracking) {
+      lines[lines.length - 1] = `${lines[lines.length - 1]}       ---已打快递单 ${tracking}`
+    }
+    lines[0] = `${prefix}${lines[0]}`
+    if (address) lines.push(address)
+    return lines.join('\n')
   }
-  const numbered = bodies.map((body, i) => `【${i + 1}】\n${body}`).join('\n\n')
-  return [formatOrderCopyDateTime(now), '', numbered].join('\n')
+  const head = `${prefix}${address}`
+  return tracking ? `${head}       ---已打快递单 ${tracking}` : head
+}
+
+/** 供应商订单复制：顶部时间；多单带【1】【2】；已发货有单号则追加 ---已打快递单 */
+export function buildMultiOrderCopyText(
+  orders: OrderBrief[],
+  now = new Date(),
+  trackingBySoId?: Record<number, string>,
+) {
+  const multi = orders.length > 1
+  const blocks = orders
+    .map((o, i) =>
+      buildSupplierCopyBlock(o, {
+        index: multi ? i + 1 : undefined,
+        trackingBySoId,
+      }),
+    )
+    .filter((t) => t.trim())
+  if (!blocks.length) return ''
+  return [formatOrderCopyDateTime(now), '', blocks.join('\n\n')].join('\n')
+}
+
+/** 兼容旧单笔调用 */
+export function buildOrderCopyText(order: OrderBrief, now = new Date()) {
+  return buildMultiOrderCopyText([order], now)
+}
+
+/** 从代发单物流明细汇总：销售单 id → 快递单号 */
+export function buildTrackingBySoId(
+  items: Array<{ id?: number; refSoId?: number }>,
+  shipments: Array<{ trackingNo?: string; items?: Array<{ poItemId: number }> }>,
+): Record<number, string> {
+  const itemToSo = new Map<number, number>()
+  for (const it of items) {
+    if (it.id && it.refSoId && it.refSoId > 0) itemToSo.set(it.id, it.refSoId)
+  }
+  const out: Record<number, string> = {}
+  for (const sh of shipments) {
+    const no = (sh.trackingNo || '').trim()
+    if (!no) continue
+    for (const si of sh.items || []) {
+      const soId = itemToSo.get(si.poItemId)
+      if (soId && !out[soId]) out[soId] = no
+    }
+  }
+  return out
 }
 
 export function canDecryptOrder(order: Pick<OrderBrief, 'sourceChannel' | 'platformSysTid'>) {
