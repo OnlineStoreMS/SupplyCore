@@ -24,7 +24,6 @@ import {
   buildTrackingBySoId,
   canDecryptOrder,
   collectActiveRefSoIds,
-  isMaskedReceiver,
 } from '../../utils/orderCopy'
 import { dateShortcuts, dateRangeDefaultTime, last7DaysDateTimeRange, todayDateTimeRange } from '../../utils/date'
 import { onPOListIntent, takePOListIntent, type POListIntent } from '../../utils/poListIntent'
@@ -411,13 +410,7 @@ async function handleCopy(row: PurchaseOrderListItem) {
   if (row.fulfillmentType !== 'dropship') return
   copyRow[row.id] = true
   try {
-    let orders = await loadLinkedOrders(row, true)
-    const needDecrypt = orders.filter((o) => canDecryptOrder(o) && isMaskedReceiver(o))
-    if (needDecrypt.length) {
-      const data = await decryptOrders(needDecrypt.map((o) => o.id))
-      const byId = new Map((data.items || []).map((o) => [o.id, o]))
-      orders = orders.map((o) => byId.get(o.id) || o)
-    }
+    const orders = await loadLinkedOrders(row, true)
     let trackingBySoId: Record<number, string> = {}
     try {
       const [detail, ships] = await Promise.all([fetchPurchaseOrder(row.id), fetchShipments(row.id)])

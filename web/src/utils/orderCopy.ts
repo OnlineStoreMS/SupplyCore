@@ -67,6 +67,7 @@ export function buildSupplierCopyBlock(
   if (!goods.length && !address) return ''
 
   const prefix = opts?.index != null ? `【${opts.index}】` : ''
+  const seller = (order.sellerRemark || '').trim()
   if (goods.length) {
     const lines = [...goods]
     if (tracking) {
@@ -74,10 +75,12 @@ export function buildSupplierCopyBlock(
     }
     lines[0] = `${prefix}${lines[0]}`
     if (address) lines.push(address)
+    if (seller) lines.push(`卖家备注：${seller}`)
     return lines.join('\n')
   }
   const head = `${prefix}${address}`
-  return tracking ? `${head}       ---已打快递单 ${tracking}` : head
+  const body = tracking ? `${head}       ---已打快递单 ${tracking}` : head
+  return seller ? `${body}\n卖家备注：${seller}` : body
 }
 
 /** 供应商订单复制：顶部时间；多单带【1】【2】；已发货有单号则追加 ---已打快递单 */

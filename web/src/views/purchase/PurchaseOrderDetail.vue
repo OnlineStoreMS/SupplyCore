@@ -26,7 +26,6 @@ import {
   buildTrackingBySoId,
   canDecryptOrder,
   collectActiveRefSoIds,
-  isMaskedReceiver,
 } from '../../utils/orderCopy'
 import PoShipmentTab from './PoShipmentTab.vue'
 import PoPaymentTab from './PoPaymentTab.vue'
@@ -444,13 +443,7 @@ async function handleCopy() {
   if (po.value?.fulfillmentType !== 'dropship') return
   copying.value = true
   try {
-    let orders = await loadLinkedOrders(true)
-    const needDecrypt = orders.filter((o) => canDecryptOrder(o) && isMaskedReceiver(o))
-    if (needDecrypt.length) {
-      const data = await decryptOrders(needDecrypt.map((o) => o.id))
-      const byId = new Map((data.items || []).map((o) => [o.id, o]))
-      orders = orders.map((o) => byId.get(o.id) || o)
-    }
+    const orders = await loadLinkedOrders(true)
     let trackingBySoId: Record<number, string> = {}
     try {
       const ships = shipments.value.length ? shipments.value : await fetchShipments(poId.value)
