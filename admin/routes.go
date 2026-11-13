@@ -52,6 +52,7 @@ func RegisterRoutes(g *gin.RouterGroup, supplierH *SupplierHandler, offerH *Offe
 	g.GET("/warehouses", whH.List)
 	g.GET("/warehouses/:id/locations", whH.ListLocations)
 
+	g.GET("/arrivals/by-tracking", trackH.LookupArrival)
 	g.GET("/purchase-orders", poH.List)
 	g.POST("/purchase-orders", poH.Create)
 	g.POST("/purchase-orders/merge", poH.Merge)

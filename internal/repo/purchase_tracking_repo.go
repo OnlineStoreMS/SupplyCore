@@ -44,6 +44,23 @@ func (r *ShipmentRepo) GetByID(poID, id uint64) (*model.PurchaseShipment, error)
 	return &s, nil
 }
 
+func (r *ShipmentRepo) FindByTracking(trackingNo string) (*model.PurchaseShipment, error) {
+	trackingNo = strings.TrimSpace(trackingNo)
+	if trackingNo == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var s model.PurchaseShipment
+	err := r.db.Scopes(scopeTenant(r.tenantID)).
+		Where("tracking_no = ?", trackingNo).
+		Preload("Items").
+		Order("id DESC").
+		First(&s).Error
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
 func (r *ShipmentRepo) FindByTrackingNo(poID uint64, trackingNo string) (*model.PurchaseShipment, error) {
 	trackingNo = strings.TrimSpace(trackingNo)
 	if trackingNo == "" {

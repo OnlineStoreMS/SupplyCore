@@ -960,6 +960,68 @@ func defaultPayRecordStatus(s string) string {
 	return s
 }
 
+type ArrivalLine struct {
+	SkuCode     string `json:"skuCode"`
+	ProductName string `json:"productName"`
+	Qty         int    `json:"qty"`
+}
+
+type ArrivalNotice struct {
+	PoID         uint64        `json:"poId"`
+	PoNo         string        `json:"poNo"`
+	SupplierName string        `json:"supplierName"`
+	WarehouseID  uint64        `json:"warehouseId"`
+	TrackingNo   string        `json:"trackingNo"`
+	Lines        []ArrivalLine `json:"lines"`
+}
+
+func (s *POTrackingService) LookupArrival(trackingNo string) (*ArrivalNotice, error) {
+	ship, err := s.repos.Shipment.ForTenant(s.tenantID).FindByTracking(trackingNo)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	po, err := s.repos.PurchaseOrder.ForTenant(s.tenantID).GetByID(ship.POID)
+	if err != nil {
+		return nil, err
+	}
+	items, err := s.repos.PurchaseOrder.ForTenant(s.tenantID).ListItems(po.ID)
+	if err != nil {
+		return nil, err
+	}
+	byID := map[uint64]model.PurchaseOrderItem{}
+	for _, it := range items {
+		byID[it.ID] = it
+	}
+	notice := &ArrivalNotice{
+		PoID:        po.ID,
+		PoNo:        po.PoNo,
+		WarehouseID: po.WarehouseID,
+		TrackingNo:  strings.TrimSpace(ship.TrackingNo),
+		Lines:       []ArrivalLine{},
+	}
+	if sup, e := s.repos.Supplier.ForTenant(s.tenantID).GetByID(po.SupplierID); e == nil && sup != nil {
+		notice.SupplierName = sup.Name
+	}
+	if len(ship.Items) > 0 {
+		for _, row := range ship.Items {
+			it := byID[row.POItemID]
+			notice.Lines = append(notice.Lines, ArrivalLine{
+				SkuCode: it.SkuCode, ProductName: it.ProductName, Qty: row.Qty,
+			})
+		}
+	} else {
+		for _, it := range items {
+			notice.Lines = append(notice.Lines, ArrivalLine{
+				SkuCode: it.SkuCode, ProductName: it.ProductName, Qty: it.Qty,
+			})
+		}
+	}
+	return notice, nil
+}
+
 func parseDateTime(s string) *time.Time {
 	s = strings.TrimSpace(s)
 	if s == "" {

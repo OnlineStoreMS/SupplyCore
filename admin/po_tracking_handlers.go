@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -30,6 +31,19 @@ func (h *POTrackingHandler) ts(c *gin.Context) *service.POTrackingService {
 
 func parsePOID(c *gin.Context) (uint64, error) {
 	return httputil.ParseID(c)
+}
+
+func (h *POTrackingHandler) LookupArrival(c *gin.Context) {
+	notice, err := h.ts(c).LookupArrival(c.Query("trackingNo"))
+	if errors.Is(err, service.ErrNotFound) {
+		response.Fail(c, http.StatusNotFound, "没有对应的采购到货")
+		return
+	}
+	if err != nil {
+		response.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(c, notice)
 }
 
 func (h *POTrackingHandler) ListShipments(c *gin.Context) {

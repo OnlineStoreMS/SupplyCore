@@ -197,6 +197,15 @@ func (r *PurchaseOrderRepo) GetByID(id uint64) (*model.PurchaseOrder, error) {
 	return &po, nil
 }
 
+func (r *PurchaseOrderRepo) ListItems(poID uint64) ([]model.PurchaseOrderItem, error) {
+	var list []model.PurchaseOrderItem
+	err := r.db.Scopes(scopeTenant(r.tenantID)).
+		Where("po_id = ? AND cancelled = ?", poID, false).
+		Order("id ASC").
+		Find(&list).Error
+	return list, err
+}
+
 // FindActiveDropshipPoNoForSales 销售单仍挂着的其它代发活线（排除 excludePoNo）。
 func (r *PurchaseOrderRepo) FindActiveDropshipPoNoForSales(soID uint64, orderNo, excludePoNo string) (string, error) {
 	orderNo = strings.TrimSpace(orderNo)
