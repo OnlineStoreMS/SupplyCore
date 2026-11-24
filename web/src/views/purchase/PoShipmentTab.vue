@@ -49,6 +49,7 @@ const form = ref({
 const callbackForm = ref({
   refSoId: 0,
   refOrderNo: '',
+  groupKey: '',
   carrierCode: '',
   carrierName: '',
   trackingNo: '',
@@ -531,12 +532,19 @@ async function handleSave() {
         const shipItems = selected
           .filter((l) => l.refOrderItemId && l.refOrderItemId > 0)
           .map((l) => ({ orderItemId: l.refOrderItemId!, qty: l.shipQty }))
+        if (!shipItems.length) {
+          ElMessage.warning('本地发货已保存，但缺少订单中心商品关联，未回传（避免整单误发）')
+          dialogVisible.value = false
+          await loadData()
+          emit('refresh')
+          return
+        }
         const shipped = await shipOrder(refSoId, {
           expressCompany: form.value.carrierName,
           expressNo: trackingNo,
           remark: form.value.remark || `代发采购单 ${props.po.poNo || props.poId} 发货回传`,
           callback: true,
-          items: shipItems.length ? shipItems : undefined,
+          items: shipItems,
         })
         const tip = shipCallbackTip(shipped, trackingNo)
         if (!tip.ok) {
@@ -611,6 +619,7 @@ async function openCallback(group: SalesOrderGroup) {
   callbackForm.value = {
     refSoId: group.refSoId,
     refOrderNo: group.refOrderNo,
+    groupKey: group.key,
     carrierCode: withTracking?.carrierCode || '',
     carrierName: withTracking?.carrierName || '',
     trackingNo: withTracking?.trackingNo || '',
@@ -634,6 +643,16 @@ async function handleCallbackShip() {
     ElMessage.warning('请填写物流单号')
     return
   }
+  // 多模式混发：必须只回传本销售组/本 PO 商品，避免整单剩余行被带上
+  const group = soGroups.value.find((g) => g.key === callbackForm.value.groupKey)
+    || soGroups.value.find((g) => g.refSoId === callbackForm.value.refSoId)
+  const shipItems = (group?.lines || [])
+    .filter((l) => l.refOrderItemId && l.refOrderItemId > 0)
+    .map((l) => ({ orderItemId: l.refOrderItemId!, qty: Math.max(1, l.qty - l.shippedQty) || l.qty || 1 }))
+  if (!shipItems.length) {
+    ElMessage.warning('本销售单缺少订单中心商品关联，无法按商品回传')
+    return
+  }
   callbacking.value = true
   try {
     const expressNo = callbackForm.value.trackingNo.trim()
@@ -642,6 +661,7 @@ async function handleCallbackShip() {
       expressNo,
       remark: callbackForm.value.remark || `代发采购单 ${props.po.poNo || props.poId} 回传`,
       callback: true,
+      items: shipItems,
     })
     const tip = shipCallbackTip(shipped, expressNo)
     if (!tip.ok) {
